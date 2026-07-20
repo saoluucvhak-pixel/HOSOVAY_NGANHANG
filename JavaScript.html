@@ -1,0 +1,1126 @@
+<script>
+  var DS_CONG_TY = [];
+  var DS_HOP_DONG = [];
+  var DS_HOP_DONG_ALL = [];
+  var DS_HO_SO = [];
+  var DS_KHACH_HANG = [];
+  var MA_HO_SO_DANG_SUA = '';
+  var MA_CTY_DANG_SUA = '';
+  var MA_HD_DANG_SUA = '';
+  var MA_KH_DANG_SUA = '';
+  var TRANG_THAI_HIEN_TAI = '';
+  var NGAY_HOM_NAY_SERVER = ''; // ngày hôm nay lấy từ server (múi giờ VN chuẩn), tránh lệch giờ trình duyệt
+  var DEM_DONG = 0;
+
+  // Bắt MỌI lỗi JavaScript chưa được xử lý (ở bất kỳ hàm nào) và hiện rõ trong msgBox,
+  // thay vì thất bại âm thầm — giúp chẩn đoán nhanh khi có lỗi client-side.
+  window.onerror = function (msg, url, line, col, err) {
+    var box = document.getElementById('msgBox');
+    if (box) {
+      box.innerHTML = '<div class="msg msg-err"><b>⚠️ Lỗi JavaScript:</b> ' + esc(String(msg)) +
+        ' (dòng ' + line + ')<br><span class="hint">Chụp lại dòng này gửi cho lập trình viên để sửa.</span></div>';
+    }
+    return false; // vẫn cho log ra console như bình thường
+  };
+
+  document.addEventListener('DOMContentLoaded', function () {
+    taiDuLieuBanDau();
+  });
+
+  document.addEventListener('click', function (e) {
+    if (e.target.classList && e.target.classList.contains('ct-ten')) return;
+    var dd = document.getElementById('ddKhachHang');
+    if (dd && !dd.contains(e.target)) dd.style.display = 'none';
+  });
+
+  var DA_KHOI_TAO_BAOCAO = false;
+
+  var TIEU_DE_TAB = {
+    hoso: 'Hồ sơ giải ngân',
+    congty: 'Danh mục công ty',
+    hopdong: 'Danh mục hợp đồng vay',
+    khachhang: 'Danh mục khách hàng',
+    baocao: 'Báo cáo tiền vay'
+  };
+
+  function chuyenTab(ten) {
+    ['hoso', 'congty', 'hopdong', 'khachhang', 'baocao'].forEach(function (t) {
+      document.getElementById('tab-' + t).style.display = (t === ten) ? 'block' : 'none';
+      document.getElementById('tabBtn-' + t).classList.toggle('active', t === ten);
+    });
+    var elTieuDe = document.getElementById('pageTitle');
+    if (elTieuDe) elTieuDe.textContent = TIEU_DE_TAB[ten] || '';
+    if (ten === 'baocao' && !DA_KHOI_TAO_BAOCAO) {
+      DA_KHOI_TAO_BAOCAO = true;
+      var homNay = NGAY_HOM_NAY_SERVER || toInputDate(new Date());
+      document.getElementById('bc_tuNgay').value = ''; // để trống = không giới hạn ngày bắt đầu
+      document.getElementById('bc_denNgay').value = homNay;
+      locBaoCaoTienVay();
+    }
+  }
+
+  function capNhatBadgeSidebar_() {
+    var b;
+    b = document.getElementById('badge-hoso'); if (b) b.textContent = DS_HO_SO.length;
+    b = document.getElementById('badge-congty'); if (b) b.textContent = DS_CONG_TY.length;
+    b = document.getElementById('badge-hopdong'); if (b) b.textContent = DS_HOP_DONG_ALL.length;
+    b = document.getElementById('badge-khachhang'); if (b) b.textContent = DS_KHACH_HANG.length;
+  }
+
+  function napDropdownCongTy_(selectId, placeholder) {
+    var sel = document.getElementById(selectId);
+    sel.innerHTML = '<option value="">' + placeholder + '</option>';
+    DS_CONG_TY.forEach(function (c) {
+      sel.innerHTML += '<option value="' + c.MaCty + '">' + c.TenCty + '</option>';
+    });
+  }
+
+  function napDanhMucCoBan(callback) {
+    google.script.run.withSuccessHandler(function (list) {
+      DS_CONG_TY = list || [];
+      napDropdownCongTy_('selCongTy', '-- Chọn công ty --');
+      napDropdownCongTy_('selCongTyEdit', '-- Tạo công ty mới --');
+      napDropdownCongTy_('hd_maCty', '-- Chọn công ty --');
+      napDropdownCongTy_('loc_congTy', '-- Tất cả --');
+      var elCT = document.getElementById('thongBaoSoCongTy');
+      if (elCT) elCT.textContent = '(máy chủ trả về ' + DS_CONG_TY.length + ' công ty)';
+
+      var selGoiY = document.getElementById('selNguoiLapBieuGoiY');
+      selGoiY.innerHTML = '<option value="">▾</option>';
+      var daThay = {};
+      DS_CONG_TY.forEach(function (c) {
+        var ten = (c.NguoiLapBieu || '').trim();
+        if (!ten || daThay[ten]) return;
+        daThay[ten] = true;
+        selGoiY.innerHTML += '<option value="' + esc(ten) + '">' + esc(ten) + '</option>';
+      });
+
+      google.script.run.withSuccessHandler(function (list2) {
+        DS_HOP_DONG_ALL = list2 || [];
+        var sel = document.getElementById('selHopDongEdit');
+        sel.innerHTML = '<option value="">-- Tạo hợp đồng mới --</option>';
+        var selLoc = document.getElementById('loc_hopDong');
+        selLoc.innerHTML = '<option value="">-- Tất cả --</option>';
+        DS_HOP_DONG_ALL.forEach(function (h) {
+          var congTy = DS_CONG_TY.filter(function (c) { return c.MaCty === h.MaCty; })[0];
+          var ten = congTy ? congTy.TenCty : h.MaCty;
+          sel.innerHTML += '<option value="' + h.MaHD + '">' + h.SoHopDong + ' - ' + ten + '</option>';
+          selLoc.innerHTML += '<option value="' + h.MaHD + '">' + h.SoHopDong + ' - ' + ten + '</option>';
+        });
+
+        google.script.run.withSuccessHandler(function (list3) {
+          DS_KHACH_HANG = list3 || [];
+          var selKH = document.getElementById('selKhachHangEdit');
+          selKH.innerHTML = '<option value="">-- Tạo khách hàng mới --</option>';
+          var dl = document.getElementById('dsKhachHang');
+          dl.innerHTML = '';
+          DS_KHACH_HANG.forEach(function (k) {
+            selKH.innerHTML += '<option value="' + k.MaKH + '">' + k.TenKhachHang +
+              (k.MaSoThue ? ' - MST ' + k.MaSoThue : '') + '</option>';
+            dl.innerHTML += '<option value="' + esc(k.TenKhachHang) + '"></option>';
+          });
+          capNhatBadgeSidebar_();
+          if (callback) callback();
+        }).withFailureHandler(function (err) { if (callback) callback(); baoLoi(err); }).layDanhSachKhachHang();
+      }).withFailureHandler(function (err) { baoLoi(err); }).layDanhSachHopDong();
+    }).withFailureHandler(function (err) {
+      var elCT = document.getElementById('thongBaoSoCongTy');
+      if (elCT) elCT.innerHTML = '<b style="color:#b71c1c;">LỖI: ' + esc((err && err.message) || String(err)) + '</b>';
+      baoLoi(err);
+    }).layDanhSachCongTy();
+  }
+
+  function taiDuLieuBanDau() {
+    hienLoading(true);
+    google.script.run.withSuccessHandler(function (ngay) {
+      NGAY_HOM_NAY_SERVER = ngay || '';
+      khoiTaoSauKhiCoNgay_();
+    }).withFailureHandler(function () {
+      NGAY_HOM_NAY_SERVER = ''; // lỗi thì dùng tạm giờ trình duyệt (xem toInputDate(new Date()) trong các hàm dưới)
+      khoiTaoSauKhiCoNgay_();
+    }).layNgayHomNay();
+  }
+
+  function khoiTaoSauKhiCoNgay_() {
+    napDanhMucCoBan(function () { onChonCongTy(); });
+    datNgayLocMacDinh();
+    locDanhSachHoSoClick();
+    resetFormMoi();
+    hienLoading(false);
+  }
+
+  /** Đặt "Từ ngày" = ngày 01 của tháng hiện tại, "Đến ngày" = hôm nay, cho bộ lọc danh sách hồ sơ. */
+  function datNgayLocMacDinh() {
+    var homNay = NGAY_HOM_NAY_SERVER || toInputDate(new Date());
+    var d = new Date(homNay + 'T00:00:00');
+    var dauThang = new Date(d.getFullYear(), d.getMonth(), 1);
+    document.getElementById('loc_tuNgay').value = toInputDate(dauThang);
+    document.getElementById('loc_denNgay').value = homNay;
+  }
+
+  /** Đặt "Ngày giấy nhận nợ" và "Ngày giải ngân" = ngày hiện hành (vẫn chọn lại được). */
+  function datNgayMacDinh() {
+    var homNay = NGAY_HOM_NAY_SERVER || toInputDate(new Date());
+    document.getElementById('ngayGiayNhanNo').value = homNay;
+    document.getElementById('ngayGiaiNgan').value = homNay;
+    tinhNgayDenHan();
+  }
+
+  /** Đưa form về trạng thái "Tạo hồ sơ mới": xoá trắng dữ liệu, đặt ngày mặc định, mở khoá form. */
+  function resetFormMoi() {
+    MA_HO_SO_DANG_SUA = '';
+    TRANG_THAI_HIEN_TAI = '';
+    document.getElementById('selCongTy').value = '';
+    onChonCongTy();
+    document.getElementById('soGiayNhanNo').value = '';
+    datNgayMacDinh();
+    document.getElementById('duNoHienTai').value = '0';
+    document.getElementById('soTienNhanNoLanNay').value = '0';
+    document.getElementById('phuongThucThanhToan').value = 'Chuyển khoản';
+    document.getElementById('thoiHanChoVayNgay').value = '';
+    document.getElementById('soThamChieu').value = '';
+    document.getElementById('mucDichSuDungVon').value = '';
+    document.getElementById('nguoiLapBieu').value = '';
+    document.getElementById('taiLieuChungMinhMucDich').value = '';
+    document.getElementById('linksBox').innerHTML = '';
+
+    document.getElementById('tbodyChiTiet').innerHTML = '';
+    DEM_DONG = 0;
+    themDong(); themDong(); themDong();
+    capNhatTongTien();
+    capNhatTrangThaiHienThi_();
+    apDungKhoaFormTheoTrangThai();
+  }
+
+  function themMoiHoSoClick() {
+    resetFormMoi();
+    baoThanhCong('Đã mở form trống — điền thông tin và bấm "Lưu hồ sơ" ở mục 5 để tạo hồ sơ mới.');
+  }
+
+  /**
+   * Lọc + tải danh sách hồ sơ vào bảng (mục 1). Gọi lại hàm này sau mỗi lần Lưu/Xoá hồ sơ
+   * để bảng luôn phản ánh đúng dữ liệu mới nhất, không cần tải lại trang.
+   */
+  function locDanhSachHoSoClick() {
+    var boLoc = {
+      maHoSo: document.getElementById('loc_maHoSo').value.trim(),
+      tuNgay: document.getElementById('loc_tuNgay').value,
+      denNgay: document.getElementById('loc_denNgay').value,
+      tenNguoiHuong: document.getElementById('loc_tenNguoiHuong').value.trim(),
+      maCty: document.getElementById('loc_congTy').value,
+      maHD: document.getElementById('loc_hopDong').value
+    };
+    var thongBao = document.getElementById('thongBaoSoHoSo');
+    if (thongBao) thongBao.textContent = 'Đang tải...';
+    google.script.run.withSuccessHandler(function (list) {
+      DS_HO_SO = list || [];
+      renderBangHoSo_();
+      capNhatBadgeSidebar_();
+      if (thongBao) thongBao.textContent = '(tìm thấy ' + DS_HO_SO.length + ' hồ sơ)';
+    }).withFailureHandler(function (err) {
+      var msg = (err && err.message) ? err.message : String(err);
+      if (thongBao) thongBao.innerHTML = '<b style="color:#b71c1c;">LỖI: ' + esc(msg) + '</b>';
+      baoLoi(err);
+    }).locDanhSachHoSo(boLoc);
+  }
+
+  function renderBangHoSo_() {
+    var tbody = document.getElementById('tbody_dsHoSo');
+    tbody.innerHTML = '';
+    if (!DS_HO_SO.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#888; font-style:italic;">Không có hồ sơ nào khớp bộ lọc.</td></tr>';
+      return;
+    }
+    DS_HO_SO.forEach(function (h) {
+      var dangChon = h.maHoSo === MA_HO_SO_DANG_SUA;
+      var tr = document.createElement('tr');
+      if (dangChon) tr.style.background = '#EAF1F8';
+      var coTheXoa = h.trangThai !== 'Đã giải ngân';
+      var lopTrangThai = h.trangThai === 'Đã giải ngân' ? 'trangthai-daigiaingan' : 'trangthai-daotaohoso';
+      tr.innerHTML =
+        '<td><b>' + esc(h.maHoSo) + '</b></td>' +
+        '<td>' + esc(h.tenCty) + '</td>' +
+        '<td>' + esc(h.soHopDong) + '</td>' +
+        '<td>' + esc(h.soGiayNhanNo) + '</td>' +
+        '<td>' + esc(h.ngayGiaiNgan) + '</td>' +
+        '<td style="text-align:right;">' + (Number(h.soTien) || 0).toLocaleString('vi-VN') + '</td>' +
+        '<td><span class="trangthai-badge ' + lopTrangThai + '">' + esc(h.trangThai) + '</span></td>' +
+        '<td style="white-space:nowrap;">' +
+          '<button type="button" class="btn btn-secondary" style="padding:4px 8px; font-size:11px; margin:0 4px 0 0;" onclick="suaHoSoTuBang(\'' + h.maHoSo + '\')">✏️ Xem/Sửa</button>' +
+          (coTheXoa
+            ? '<button type="button" class="btn btn-danger" onclick="xoaHoSoTuBang(\'' + h.maHoSo + '\')">🗑️ Xoá</button>'
+            : '') +
+        '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  function suaHoSoTuBang(maHoSo) {
+    hienLoading(true);
+    google.script.run.withSuccessHandler(function (data) {
+      try {
+        MA_HO_SO_DANG_SUA = maHoSo;
+        dienDuLieuVaoForm(data);
+        renderBangHoSo_(); // tô sáng lại dòng đang chọn
+        hienLoading(false);
+      } catch (e) {
+        hienLoading(false);
+        baoLoi('Lỗi khi hiển thị hồ sơ ' + maHoSo + ': ' + e.message);
+      }
+    }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).layDuLieuDayDu(maHoSo);
+  }
+
+  function xoaHoSoTuBang(maHoSo) {
+    hoiXacNhan('Xoá hồ sơ ' + maHoSo + '? Thao tác này không thể hoàn tác.', function () {
+      hienLoading(true);
+      google.script.run.withSuccessHandler(function () {
+        hienLoading(false);
+        baoThanhCong('Đã xoá hồ sơ ' + maHoSo + '.');
+        if (MA_HO_SO_DANG_SUA === maHoSo) resetFormMoi();
+        locDanhSachHoSoClick();
+      }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).xoaHoSo(maHoSo);
+    });
+  }
+
+  // ---------- Tab: Danh mục công ty ----------
+  function onChonCongTyEdit() {
+    var maCty = document.getElementById('selCongTyEdit').value;
+    MA_CTY_DANG_SUA = maCty;
+    var c = DS_CONG_TY.filter(function (x) { return x.MaCty === maCty; })[0];
+    document.getElementById('ct_tenCty').value = c ? c.TenCty : '';
+    document.getElementById('ct_maCIF').value = c ? c.MaCIF : '';
+    document.getElementById('ct_diaChiTruSo').value = c ? c.DiaChiTruSo : '';
+    document.getElementById('ct_dienThoai').value = c ? c.DienThoai : '';
+    document.getElementById('ct_fax').value = c ? c.Fax : '';
+    document.getElementById('ct_nguoiDaiDien').value = c ? c.NguoiDaiDien : '';
+    document.getElementById('ct_chucVu').value = c ? c.ChucVu : '';
+    document.getElementById('ct_giayUyQuyenSo').value = c ? c.GiayUyQuyenSo : '';
+    document.getElementById('ct_giayUyQuyenNgay').value = c ? toInputDate(c.GiayUyQuyenNgay) : '';
+    document.getElementById('ct_nguoiLapBieu').value = c ? (c.NguoiLapBieu || '') : '';
+  }
+
+  function luuCongTyClick() {
+    var payload = {
+      maCty: MA_CTY_DANG_SUA || '',
+      tenCty: document.getElementById('ct_tenCty').value.trim(),
+      maCIF: document.getElementById('ct_maCIF').value.trim(),
+      diaChiTruSo: document.getElementById('ct_diaChiTruSo').value.trim(),
+      dienThoai: document.getElementById('ct_dienThoai').value.trim(),
+      fax: document.getElementById('ct_fax').value.trim(),
+      nguoiDaiDien: document.getElementById('ct_nguoiDaiDien').value.trim(),
+      chucVu: document.getElementById('ct_chucVu').value.trim(),
+      giayUyQuyenSo: document.getElementById('ct_giayUyQuyenSo').value.trim(),
+      giayUyQuyenNgay: document.getElementById('ct_giayUyQuyenNgay').value,
+      nguoiLapBieu: document.getElementById('ct_nguoiLapBieu').value.trim()
+    };
+    if (!payload.tenCty || !payload.diaChiTruSo) {
+      baoLoi('Vui lòng nhập Tên công ty và Địa chỉ trụ sở chính.');
+      return;
+    }
+    hienLoading(true);
+    google.script.run.withSuccessHandler(function (res) {
+      hienLoading(false);
+      MA_CTY_DANG_SUA = res.maCty;
+      baoThanhCong('Đã lưu công ty: ' + res.maCty);
+      napDanhMucCoBan();
+    }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).luuCongTy(payload);
+  }
+
+  // ---------- Tự động điền STK/Ngân hàng khi chọn khách hàng trong bảng thụ hưởng ----------
+  function onKhachHangInput(inputEl) {
+    var ten = inputEl.value.trim();
+    var kh = DS_KHACH_HANG.filter(function (k) { return k.TenKhachHang === ten; })[0];
+    if (!kh) return;
+    var tr = inputEl.closest('tr');
+    tr.querySelector('.ct-stk').value = kh.SoTaiKhoan || '';
+    tr.querySelector('.ct-nh').value = kh.TaiNganHang || '';
+  }
+
+  // ---------- Dropdown chọn nhanh / gõ tên để lọc "Tên người hưởng" (từ Danh mục khách hàng) ----------
+  var KH_DROPDOWN_INPUT = null;
+
+  function moDanhSachKH(inputEl) {
+    KH_DROPDOWN_INPUT = inputEl;
+    renderDanhSachKH_(inputEl.value.trim());
+  }
+
+  function locDanhSachKH(inputEl) {
+    KH_DROPDOWN_INPUT = inputEl;
+    renderDanhSachKH_(inputEl.value.trim());
+  }
+
+  function renderDanhSachKH_(tuKhoa) {
+    var dd = document.getElementById('ddKhachHang');
+    if (!KH_DROPDOWN_INPUT) return;
+    var tk = tuKhoa.trim().toUpperCase();
+    var ds = DS_KHACH_HANG.filter(function (k) {
+      if (!tk) return true;
+      return String(k.TenKhachHang || '').toUpperCase().indexOf(tk) >= 0;
+    });
+
+    if (!ds.length) {
+      dd.innerHTML = '<div class="kh-empty">Không có khách hàng khớp — vẫn có thể tự gõ tên mới.</div>';
+    } else {
+      dd.innerHTML = '';
+      ds.forEach(function (k) {
+        var item = document.createElement('div');
+        item.className = 'kh-item';
+        item.textContent = k.TenKhachHang + (k.MaSoThue ? ' — MST ' + k.MaSoThue : '');
+        item.onmousedown = function (e) {
+          e.preventDefault(); // giữ focus, tránh blur trước khi xử lý chọn
+          chonKHTuDropdown_(k);
+        };
+        dd.appendChild(item);
+      });
+    }
+
+    var rect = KH_DROPDOWN_INPUT.getBoundingClientRect();
+    dd.style.left = rect.left + 'px';
+    dd.style.top = (rect.bottom + 2) + 'px';
+    dd.style.width = Math.max(rect.width, 220) + 'px';
+    dd.style.display = 'block';
+  }
+
+  function chonKHTuDropdown_(k) {
+    if (!KH_DROPDOWN_INPUT) return;
+    KH_DROPDOWN_INPUT.value = k.TenKhachHang;
+    var tr = KH_DROPDOWN_INPUT.closest('tr');
+    if (tr) {
+      tr.querySelector('.ct-stk').value = k.SoTaiKhoan || '';
+      tr.querySelector('.ct-nh').value = k.TaiNganHang || '';
+    }
+    dongDanhSachKH();
+  }
+
+  function dongDanhSachKH() {
+    document.getElementById('ddKhachHang').style.display = 'none';
+    KH_DROPDOWN_INPUT = null;
+  }
+
+  // ---------- Chọn mẫu có sẵn cho "Nội dung thanh toán" (vẫn gõ tự do được) ----------
+  function apDungMauNoiDung(selEl) {
+    var loai = selEl.value;
+    if (!loai) return;
+    var tr = selEl.closest('tr');
+    var tlso = tr.querySelector('.ct-tlso').value.trim();
+    var ngaytl = tr.querySelector('.ct-ngaytl').value.trim();
+    var noidungInput = tr.querySelector('.ct-noidung');
+    var tienTo = (loai === 'hang') ? 'Thanh toán tiền hàng theo hoá đơn' : 'Thanh toán chi phí theo hoá đơn';
+    var phanHD = tlso ? ' số ' + tlso : '';
+    var phanNgay = ngaytl ? ' ngày ' + ngaytl : '';
+    noidungInput.value = tienTo + phanHD + phanNgay;
+    selEl.value = ''; // trả select về mặc định, sẵn sàng chọn lại lần sau
+  }
+
+  // ---------- Tab: Danh mục khách hàng ----------
+  function onChonKhachHangEdit() {
+    var maKH = document.getElementById('selKhachHangEdit').value;
+    MA_KH_DANG_SUA = maKH;
+    var k = DS_KHACH_HANG.filter(function (x) { return x.MaKH === maKH; })[0];
+    document.getElementById('kh_tenKhachHang').value = k ? k.TenKhachHang : '';
+    document.getElementById('kh_maSoThue').value = k ? k.MaSoThue : '';
+    document.getElementById('kh_soTaiKhoan').value = k ? k.SoTaiKhoan : '';
+    document.getElementById('kh_taiNganHang').value = k ? k.TaiNganHang : '';
+    document.getElementById('kh_diaChi').value = k ? k.DiaChi : '';
+    document.getElementById('kh_ghiChu').value = k ? k.GhiChu : '';
+  }
+
+  function luuKhachHangClick() {
+    var payload = {
+      maKH: MA_KH_DANG_SUA || '',
+      tenKhachHang: document.getElementById('kh_tenKhachHang').value.trim(),
+      maSoThue: document.getElementById('kh_maSoThue').value.trim(),
+      soTaiKhoan: document.getElementById('kh_soTaiKhoan').value.trim(),
+      taiNganHang: document.getElementById('kh_taiNganHang').value.trim(),
+      diaChi: document.getElementById('kh_diaChi').value.trim(),
+      ghiChu: document.getElementById('kh_ghiChu').value.trim()
+    };
+    if (!payload.tenKhachHang || !payload.soTaiKhoan || !payload.taiNganHang) {
+      baoLoi('Vui lòng nhập Tên khách hàng, Số tài khoản và Ngân hàng.');
+      return;
+    }
+    hienLoading(true);
+    google.script.run.withSuccessHandler(function (res) {
+      hienLoading(false);
+      MA_KH_DANG_SUA = res.maKH;
+      baoThanhCong('Đã lưu khách hàng: ' + res.maKH);
+      napDanhMucCoBan();
+    }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).luuKhachHang(payload);
+  }
+  function onChonHopDongEdit() {
+    var maHD = document.getElementById('selHopDongEdit').value;
+    MA_HD_DANG_SUA = maHD;
+    var h = DS_HOP_DONG_ALL.filter(function (x) { return x.MaHD === maHD; })[0];
+    document.getElementById('hd_maCty').value = h ? h.MaCty : '';
+    document.getElementById('hd_soHopDong').value = h ? h.SoHopDong : '';
+    document.getElementById('hd_ngayHopDong').value = h ? toInputDate(h.NgayHopDong) : '';
+    document.getElementById('hd_tenNganHang').value = h ? h.TenNganHang : '';
+    document.getElementById('hd_chiNhanh').value = h ? h.ChiNhanh : '';
+    document.getElementById('hd_diaChiChiNhanh').value = h ? h.DiaChiChiNhanh : '';
+    document.getElementById('hd_mstChiNhanh').value = h ? h.MST_ChiNhanh : '';
+    document.getElementById('hd_hanMucVay').value = h ? h.HanMucVay : '';
+    document.getElementById('hd_laiSuatTrongHan').value = h ? h['LaiSuatTrongHan_%'] : '';
+    document.getElementById('hd_moTaLaiSuatQuaHan').value = h ? h.MoTaLaiSuatQuaHan : '';
+    document.getElementById('hd_laiSuatLaiChamTra').value = h ? h['LaiSuatLaiChamTra_%'] : '';
+    document.getElementById('hd_kyHanTraGoc').value = h ? h.KyHanTraGoc : 'Cuối kỳ';
+    document.getElementById('hd_kyHanTraLai').value = h ? h.KyHanTraLai : 'Hàng tháng';
+  }
+
+  function luuHopDongClick() {
+    var payload = {
+      maHD: MA_HD_DANG_SUA || '',
+      maCty: document.getElementById('hd_maCty').value,
+      soHopDong: document.getElementById('hd_soHopDong').value.trim(),
+      ngayHopDong: document.getElementById('hd_ngayHopDong').value,
+      tenNganHang: document.getElementById('hd_tenNganHang').value.trim(),
+      chiNhanh: document.getElementById('hd_chiNhanh').value.trim(),
+      diaChiChiNhanh: document.getElementById('hd_diaChiChiNhanh').value.trim(),
+      mstChiNhanh: document.getElementById('hd_mstChiNhanh').value.trim(),
+      hanMucVay: document.getElementById('hd_hanMucVay').value,
+      laiSuatTrongHan: document.getElementById('hd_laiSuatTrongHan').value,
+      moTaLaiSuatQuaHan: document.getElementById('hd_moTaLaiSuatQuaHan').value.trim(),
+      laiSuatLaiChamTra: document.getElementById('hd_laiSuatLaiChamTra').value,
+      kyHanTraGoc: document.getElementById('hd_kyHanTraGoc').value.trim(),
+      kyHanTraLai: document.getElementById('hd_kyHanTraLai').value.trim()
+    };
+    if (!payload.maCty || !payload.soHopDong) {
+      baoLoi('Vui lòng chọn Công ty và nhập Số hợp đồng.');
+      return;
+    }
+    hienLoading(true);
+    google.script.run.withSuccessHandler(function (res) {
+      hienLoading(false);
+      MA_HD_DANG_SUA = res.maHD;
+      baoThanhCong('Đã lưu hợp đồng vay: ' + res.maHD);
+      napDanhMucCoBan();
+    }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).luuHopDong(payload);
+  }
+
+  function onChonCongTy(callback) {
+    var maCty = document.getElementById('selCongTy').value;
+    var selHD = document.getElementById('selHopDong');
+    selHD.innerHTML = '<option value="">-- Chọn hợp đồng --</option>';
+    var elHD = document.getElementById('thongBaoSoHopDong');
+    if (elHD) elHD.textContent = '';
+    var cty = DS_CONG_TY.filter(function (c) { return c.MaCty === maCty; })[0];
+    document.getElementById('nguoiLapBieu').value = cty ? (cty.NguoiLapBieu || '') : '';
+    if (!maCty) { if (callback) callback(); return; }
+    google.script.run.withSuccessHandler(function (list) {
+      DS_HOP_DONG = list || [];
+      DS_HOP_DONG.forEach(function (h) {
+        selHD.innerHTML += '<option value="' + h.MaHD + '">' + h.SoHopDong + ' - ' + h.TenNganHang + ' ' + h.ChiNhanh + '</option>';
+      });
+      if (elHD) elHD.textContent = '(mã công ty đang chọn: ' + maCty + ' — máy chủ trả về ' + DS_HOP_DONG.length + ' hợp đồng khớp)';
+      if (callback) callback();
+    }).withFailureHandler(function (err) {
+      if (elHD) elHD.innerHTML = '<b style="color:#b71c1c;">LỖI: ' + esc((err && err.message) || String(err)) + '</b>';
+      baoLoi(err);
+      if (callback) callback();
+    }).layDanhSachHopDong(maCty);
+  }
+
+  function chonNguoiLapBieuGoiY(sel) {
+    if (!sel.value) return;
+    document.getElementById('nguoiLapBieu').value = sel.value;
+    sel.value = ''; // trả về mặc định để có thể chọn lại
+  }
+
+  function dienDuLieuVaoForm(data) {
+    var hoSo = data.hoSo, hopDong = data.hopDong, congTy = data.congTy, chiTiet = data.chiTiet;
+    document.getElementById('selCongTy').value = congTy.MaCty;
+    onChonCongTy(function () {
+      document.getElementById('selHopDong').value = hopDong.MaHD;
+    });
+
+    document.getElementById('soGiayNhanNo').value = hoSo.SoGiayNhanNo || '';
+    document.getElementById('ngayGiayNhanNo').value = toInputDate(hoSo.NgayGiayNhanNo);
+    document.getElementById('duNoHienTai').value = (Number(hoSo.DuNoHienTai) || 0).toLocaleString('vi-VN');
+    document.getElementById('soTienNhanNoLanNay').value = (Number(hoSo.SoTienNhanNoLanNay) || 0).toLocaleString('vi-VN');
+    document.getElementById('phuongThucThanhToan').value = hoSo.PhuongThucThanhToan || 'Chuyển khoản';
+    document.getElementById('ngayGiaiNgan').value = toInputDate(hoSo.NgayGiaiNgan);
+    document.getElementById('thoiHanChoVayNgay').value = hoSo.ThoiHanChoVay_Ngay || '';
+    tinhNgayDenHan();
+    document.getElementById('soThamChieu').value = hoSo.SoThamChieu || '';
+    document.getElementById('mucDichSuDungVon').value = hoSo.MucDichSuDungVon || '';
+    document.getElementById('nguoiLapBieu').value = hoSo.NguoiLapBieu || '';
+    document.getElementById('taiLieuChungMinhMucDich').value = hoSo.TaiLieuChungMinhMucDich || '';
+
+    TRANG_THAI_HIEN_TAI = hoSo.TrangThai || 'Đã tạo hồ sơ';
+    capNhatTrangThaiHienThi_();
+
+    document.getElementById('tbodyChiTiet').innerHTML = '';
+    DEM_DONG = 0;
+    if (chiTiet && chiTiet.length) {
+      chiTiet.forEach(function (ct) {
+        themDong(ct);
+      });
+    } else {
+      themDong(); themDong(); themDong();
+    }
+    capNhatTongTien();
+    apDungKhoaFormTheoTrangThai();
+    hienLaiLinkDaTao_(hoSo);
+  }
+
+  /** Hiện lại các link văn bản đã tạo trước đó (nếu có) khi mở xem/sửa 1 hồ sơ đã "Đã tạo hồ sơ"/"Đã giải ngân". */
+  function hienLaiLinkDaTao_(hoSo) {
+    var box = document.getElementById('linksBox');
+    box.innerHTML = '';
+    var danhSach = [
+      ['Giấy nhận nợ', hoSo.Link_GiayNhanNo, hoSo.Link_GiayNhanNo_PDF],
+      ['Văn bản đề nghị giải ngân', hoSo.Link_VanBanDeNghi, hoSo.Link_VanBanDeNghi_PDF],
+      ['Uỷ nhiệm chi 4 liên', hoSo.Link_UNC, hoSo.Link_UNC_PDF],
+      ['Bảng kê tài liệu chứng minh MĐSDV', hoSo.Link_BangKeTaiLieu, hoSo.Link_BangKeTaiLieu_PDF],
+      ['Phụ lục 02 - Bảng kê UNC', hoSo.Link_BangKeUNC, hoSo.Link_BangKeUNC_PDF]
+    ];
+    var coVanBan = danhSach.some(function (d) { return d[1] || d[2]; });
+    if (!coVanBan) return;
+    var tieuDe = document.createElement('div');
+    tieuDe.className = 'hint';
+    tieuDe.style.marginBottom = '4px';
+    tieuDe.textContent = '📁 Văn bản đã tạo trước đó (bấm để xem/in lại):';
+    box.appendChild(tieuDe);
+    danhSach.forEach(function (d) {
+      hienLinkCap_(d[0], { docUrl: d[1], sheetUrl: d[1], pdfUrl: d[2] });
+    });
+  }
+
+  /**
+   * Tự động tính "Ngày đến hạn" = "Ngày giải ngân" + "Thời hạn cho vay (số ngày)".
+   * Ô "Ngày đến hạn" ở giao diện để readonly, không cho gõ tay.
+   */
+  function tinhNgayDenHan() {
+    var ngayGN = document.getElementById('ngayGiaiNgan').value; // yyyy-mm-dd
+    var soNgay = Number(document.getElementById('thoiHanChoVayNgay').value) || 0;
+    var out = document.getElementById('ngayDenHan');
+    if (!ngayGN || !soNgay) { out.value = ''; return; }
+    var d = new Date(ngayGN + 'T00:00:00');
+    d.setDate(d.getDate() + soNgay);
+    out.value = toInputDate(d);
+  }
+
+  /** Hiển thị "Trạng thái hồ sơ" ở mục 1 (Nháp nếu đang tạo mới). */
+  function capNhatTrangThaiHienThi_() {
+    document.getElementById('trangThaiHoSoHienThi').value = TRANG_THAI_HIEN_TAI || 'Nháp';
+  }
+
+  /**
+   * Khoá toàn bộ form (mục 1-3 + nút Lưu/Tạo văn bản) khi hồ sơ đã ở trạng thái "Đã giải ngân"
+   * (chỉ cho xem, không cho sửa). Đồng thời hiện/ẩn các nút "Đã hoàn thành giải ngân" / "Xoá hồ sơ".
+   */
+  function apDungKhoaFormTheoTrangThai() {
+    var daGiaiNgan = TRANG_THAI_HIEN_TAI === 'Đã giải ngân';
+    var vungKhoa = document.querySelectorAll(
+      '#tab-hoso .card:nth-of-type(2) input, #tab-hoso .card:nth-of-type(2) select,' +
+      '#tab-hoso .card:nth-of-type(3) input, #tab-hoso .card:nth-of-type(3) select,' +
+      '#tbodyChiTiet input, #tbodyChiTiet select, #tbodyChiTiet button'
+    );
+    vungKhoa.forEach(function (el) {
+      if (el.hasAttribute('readonly') && (el.id === 'ngayDenHan' || el.id === 'soTienNhanNoLanNay')) return;
+      el.disabled = daGiaiNgan;
+    });
+
+    document.querySelectorAll('#tab-hoso .card:nth-of-type(4) .toolbar button,' +
+      '#tab-hoso .card:nth-of-type(5) button.btn-primary, #tab-hoso .card:nth-of-type(5) button.btn-secondary,' +
+      '#tab-hoso .card:nth-of-type(5) button.btn-success:not(#btnDaGiaiNgan)'
+    ).forEach(function (btn) { btn.disabled = daGiaiNgan; });
+
+    var coHoSo = !!MA_HO_SO_DANG_SUA;
+    document.getElementById('btnDaGiaiNgan').style.display = (coHoSo && !daGiaiNgan) ? 'inline-block' : 'none';
+    var banner = document.getElementById('bannerKhoa');
+    if (banner) banner.style.display = daGiaiNgan ? 'flex' : 'none';
+  }
+
+  // ---------- Định dạng số nguyên có dấu phân cách hàng nghìn (Dư nợ hiện tại...) ----------
+  function layGiaTriSo_(v) {
+    if (v === null || v === undefined) return 0;
+    var s = String(v).replace(/[^0-9\-]/g, '');
+    var n = parseInt(s, 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function formatSoNguyenInput(el) {
+    var so = layGiaTriSo_(el.value);
+    el.value = so ? so.toLocaleString('vi-VN') : '0';
+  }
+
+  function boFormatKhiFocus(el) {
+    var so = layGiaTriSo_(el.value);
+    el.value = so || '';
+  }
+
+  // ---------- Modal xác nhận dùng chung ----------
+  var HANH_DONG_XAC_NHAN = null;
+
+  function hoiXacNhan(noiDung, hanhDong) {
+    document.getElementById('modalXacNhanNoiDung').textContent = noiDung;
+    HANH_DONG_XAC_NHAN = hanhDong;
+    document.getElementById('modalXacNhan').style.display = 'flex';
+  }
+
+  function xacNhanDongY_() {
+    var hd = HANH_DONG_XAC_NHAN;
+    dongModalXacNhan();
+    if (hd) hd();
+  }
+
+  function dongModalXacNhan() {
+    document.getElementById('modalXacNhan').style.display = 'none';
+    HANH_DONG_XAC_NHAN = null;
+  }
+
+  // ---------- Đã hoàn thành giải ngân ----------
+  function danhDauHoanThanhGiaiNgan() {
+    if (!MA_HO_SO_DANG_SUA) { baoLoi('Vui lòng lưu hồ sơ trước khi đánh dấu đã giải ngân.'); return; }
+    hoiXacNhan('Xác nhận đã hoàn thành giải ngân cho hồ sơ ' + MA_HO_SO_DANG_SUA +
+      '? Sau khi xác nhận, hồ sơ sẽ chuyển trạng thái "Đã giải ngân" và không thể sửa được nữa.', function () {
+        hienLoading(true);
+        google.script.run.withSuccessHandler(function () {
+          hienLoading(false);
+          TRANG_THAI_HIEN_TAI = 'Đã giải ngân';
+          capNhatTrangThaiHienThi_();
+          apDungKhoaFormTheoTrangThai();
+          baoThanhCong('Đã đánh dấu hồ sơ ' + MA_HO_SO_DANG_SUA + ' là "Đã giải ngân".');
+          locDanhSachHoSoClick();
+        }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).danhDauDaGiaiNgan(MA_HO_SO_DANG_SUA);
+      });
+  }
+
+  function toInputDate(v) {
+    if (!v) return '';
+    var d = new Date(v);
+    if (isNaN(d.getTime())) return '';
+    var mm = ('0' + (d.getMonth() + 1)).slice(-2);
+    var dd = ('0' + d.getDate()).slice(-2);
+    return d.getFullYear() + '-' + mm + '-' + dd;
+  }
+
+  function themDong(ct) {
+    ct = ct || {};
+    DEM_DONG++;
+    var id = 'r' + DEM_DONG;
+    var tr = document.createElement('tr');
+    tr.id = id;
+    tr.innerHTML =
+      '<td>' + DEM_DONG + '</td>' +
+      '<td><input class="ct-ten" autocomplete="off" ' +
+        'onfocus="moDanhSachKH(this)" oninput="locDanhSachKH(this); onKhachHangInput(this);" ' +
+        'onblur="setTimeout(dongDanhSachKH, 150)" value="' + esc(ct.TenNguoiHuong) + '"></td>' +
+      '<td><input class="ct-stk" value="' + esc(ct.SoTaiKhoan) + '"></td>' +
+      '<td><input class="ct-nh" value="' + esc(ct.TaiNganHang) + '"></td>' +
+      '<td><div style="display:flex; flex-direction:column; gap:3px;">' +
+        '<select onchange="apDungMauNoiDung(this)" style="font-size:11px; padding:3px;">' +
+          '<option value="">-- Chọn mẫu nội dung --</option>' +
+          '<option value="hang">Thanh toán tiền hàng theo hoá đơn...</option>' +
+          '<option value="cp">Thanh toán chi phí theo hoá đơn...</option>' +
+        '</select>' +
+        '<input class="ct-noidung" value="' + esc(ct.NoiDungThanhToan) + '">' +
+      '</div></td>' +
+      '<td><input class="ct-sotien" type="text" inputmode="numeric" value="' + (ct.SoTien ? Number(ct.SoTien).toLocaleString('vi-VN') : '') + '" ' +
+        'onfocus="boFormatKhiFocus(this)" onblur="formatSoNguyenInput(this); capNhatTongTien();" oninput="capNhatTongTien()"></td>' +
+      '<td style="text-align:center;"><input class="ct-nhanh" type="checkbox" ' + (ct.ChuyenTienNhanh_24_7 === 'Y' ? 'checked' : '') + '></td>' +
+      '<td><div style="display:flex; gap:4px;">' +
+        '<input class="ct-tlso" style="flex:1;" value="' + esc(ct.TaiLieuSo) + '">' +
+        '<button type="button" class="btn btn-secondary" style="padding:4px 6px; margin:0; font-size:11px;" ' +
+        'onclick="moChonTaiLieu(\'' + id + '\')" title="Chọn số hoá đơn từ Sổ chi tiết mua hàng theo Tên người hưởng">🔎</button>' +
+      '</div></td>' +
+      '<td><input class="ct-ngaytl" value="' + esc(ct.NgayTaiLieu) + '"></td>' +
+      '<td><button class="btn btn-danger" onclick="xoaDong(\'' + id + '\')">X</button></td>';
+    document.getElementById('tbodyChiTiet').appendChild(tr);
+    capNhatTongTien();
+  }
+
+  // ---------- Chọn số hoá đơn / ngày tài liệu từ Sổ chi tiết mua hàng (theo Tên người hưởng) ----------
+  var TAI_LIEU_ROW_ID = '';
+  var TAI_LIEU_DANH_SACH = [];
+
+  function moChonTaiLieu(rowId) {
+    var tr = document.getElementById(rowId);
+    var ten = tr.querySelector('.ct-ten').value.trim();
+    if (!ten) {
+      baoLoi('Vui lòng nhập "Tên người hưởng" ở dòng này trước khi chọn tài liệu.');
+      return;
+    }
+    TAI_LIEU_ROW_ID = rowId;
+    document.getElementById('modalTaiLieuTitle').textContent = 'Chọn số hoá đơn — ' + ten;
+    document.getElementById('modalTaiLieuBody').innerHTML =
+      '<div class="loading" style="display:block;">Đang tải dữ liệu từ Sổ chi tiết mua hàng...</div>';
+    document.getElementById('modalTaiLieu').style.display = 'flex';
+
+    google.script.run.withSuccessHandler(function (list) {
+      TAI_LIEU_DANH_SACH = list || [];
+      renderDanhSachTaiLieu_();
+    }).withFailureHandler(function (err) {
+      var msg = (err && err.message) ? err.message : String(err);
+      document.getElementById('modalTaiLieuBody').innerHTML = '<div class="msg msg-err">Lỗi: ' + msg + '</div>';
+    }).layDanhSachTaiLieuTheoNhaCungCap(ten, MA_HO_SO_DANG_SUA || '');
+  }
+
+  function renderDanhSachTaiLieu_() {
+    var body = document.getElementById('modalTaiLieuBody');
+    if (!TAI_LIEU_DANH_SACH.length) {
+      body.innerHTML = '<div class="msg msg-err">Không tìm thấy hoá đơn nào của nhà cung cấp này trong Sổ chi tiết mua hàng ' +
+        '(có thể do tên chưa khớp với cột "nhacungcap", hoặc tất cả hoá đơn của nhà cung cấp này đã được dùng ở hồ sơ khác).</div>';
+      return;
+    }
+    var html = '<div style="max-height:340px; overflow:auto;"><table class="detail"><thead><tr>' +
+      '<th style="width:26px;"></th><th>Số hoá đơn</th><th>Ngày</th><th>Diễn giải</th><th style="text-align:right;">Giá trị (VND)</th>' +
+      '</tr></thead><tbody>';
+    TAI_LIEU_DANH_SACH.forEach(function (it, i) {
+      html += '<tr>' +
+        '<td style="text-align:center;"><input type="checkbox" class="chk-taillieu" data-idx="' + i + '"></td>' +
+        '<td>' + esc(it.sohd) + '</td>' +
+        '<td>' + esc(it.ngay) + '</td>' +
+        '<td>' + esc(it.dienGiai) + '</td>' +
+        '<td style="text-align:right;">' + (Number(it.giaTri) || 0).toLocaleString('vi-VN') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    body.innerHTML = html;
+  }
+
+  function apDungChonTaiLieu() {
+    var checked = Array.prototype.slice.call(document.querySelectorAll('.chk-taillieu:checked'));
+    if (!checked.length) {
+      baoLoi('Vui lòng chọn ít nhất 1 hoá đơn.');
+      return;
+    }
+    // Giữ đúng thứ tự các dòng đã tick trong bảng (đã sắp theo ngày tăng dần).
+    checked.sort(function (a, b) { return Number(a.dataset.idx) - Number(b.dataset.idx); });
+    var soHDs = [], ngays = [], tongGiaTri = 0;
+    checked.forEach(function (chk) {
+      var it = TAI_LIEU_DANH_SACH[Number(chk.dataset.idx)];
+      if (!it) return;
+      soHDs.push(it.sohd);
+      ngays.push(it.ngay);
+      tongGiaTri += Number(it.giaTri) || 0;
+    });
+    var tr = document.getElementById(TAI_LIEU_ROW_ID);
+    if (tr) {
+      tr.querySelector('.ct-tlso').value = soHDs.join(', ');
+      tr.querySelector('.ct-ngaytl').value = ngays.join(', ');
+      // Gợi ý "Số tiền" = tổng Giá trị (cột O) của các hoá đơn đã chọn — vẫn có thể tự gõ số khác sau đó.
+      tr.querySelector('.ct-sotien').value = tongGiaTri.toLocaleString('vi-VN');
+      capNhatTongTien();
+    }
+    dongModalTaiLieu();
+  }
+
+  function dongModalTaiLieu() {
+    document.getElementById('modalTaiLieu').style.display = 'none';
+    TAI_LIEU_ROW_ID = '';
+    TAI_LIEU_DANH_SACH = [];
+  }
+
+  function xoaDong(id) {
+    var el = document.getElementById(id);
+    if (el) el.parentNode.removeChild(el);
+    capNhatTongTien();
+  }
+
+  function esc(v) {
+    if (v === undefined || v === null) return '';
+    return String(v).replace(/"/g, '&quot;');
+  }
+
+  function capNhatTongTien() {
+    var rows = document.querySelectorAll('#tbodyChiTiet tr');
+    var tong = 0;
+    rows.forEach(function (r) {
+      var v = layGiaTriSo_(r.querySelector('.ct-sotien').value);
+      tong += v;
+    });
+    document.getElementById('tongTien').textContent = tong.toLocaleString('vi-VN');
+    // "Số tiền nhận nợ lần này" luôn tự động bằng tổng "Số tiền" các dòng thụ hưởng ở mục 3.
+    document.getElementById('soTienNhanNoLanNay').value = tong.toLocaleString('vi-VN');
+  }
+
+  function thuThapDuLieuForm() {
+    var maHD = document.getElementById('selHopDong').value;
+    if (!maHD) { baoLoi('Vui lòng chọn công ty và hợp đồng vay.'); return null; }
+    var soTienLanNay = layGiaTriSo_(document.getElementById('soTienNhanNoLanNay').value);
+    if (!soTienLanNay) { baoLoi('Vui lòng nhập Số tiền ở các dòng thụ hưởng (mục 3).'); return null; }
+
+    var chiTiet = [];
+    document.querySelectorAll('#tbodyChiTiet tr').forEach(function (r) {
+      var ten = r.querySelector('.ct-ten').value.trim();
+      var soTien = layGiaTriSo_(r.querySelector('.ct-sotien').value);
+      if (!ten && !soTien) return; // bỏ dòng trống
+      chiTiet.push({
+        tenNguoiHuong: ten,
+        soTaiKhoan: r.querySelector('.ct-stk').value.trim(),
+        taiNganHang: r.querySelector('.ct-nh').value.trim(),
+        loaiTien: 'VND',
+        noiDungThanhToan: r.querySelector('.ct-noidung').value.trim(),
+        soTien: soTien,
+        chuyenTienNhanh: r.querySelector('.ct-nhanh').checked ? 'Y' : 'N',
+        taiLieuSo: r.querySelector('.ct-tlso').value.trim(),
+        ngayTaiLieu: r.querySelector('.ct-ngaytl').value.trim(),
+        donViLapTaiLieu: ten
+      });
+    });
+
+    var taiLieuCM = document.getElementById('taiLieuChungMinhMucDich').value.trim() ||
+      'Hóa đơn mua hàng và hợp đồng kinh tế đính kèm';
+
+    return {
+      maHoSo: MA_HO_SO_DANG_SUA || '',
+      maHD: maHD,
+      soGiayNhanNo: document.getElementById('soGiayNhanNo').value.trim(),
+      ngayGiayNhanNo: document.getElementById('ngayGiayNhanNo').value,
+      duNoHienTai: layGiaTriSo_(document.getElementById('duNoHienTai').value),
+      soTienNhanNoLanNay: soTienLanNay,
+      phuongThucThanhToan: document.getElementById('phuongThucThanhToan').value,
+      mucDichSuDungVon: document.getElementById('mucDichSuDungVon').value.trim() || 'Bổ sung vốn lưu động',
+      thoiHanChoVayNgay: document.getElementById('thoiHanChoVayNgay').value,
+      ngayGiaiNgan: document.getElementById('ngayGiaiNgan').value,
+      ngayDenHan: document.getElementById('ngayDenHan').value,
+      taiLieuChungMinhMucDich: taiLieuCM,
+      nguoiLapBieu: document.getElementById('nguoiLapBieu').value.trim(),
+      soThamChieu: document.getElementById('soThamChieu').value.trim(),
+      trangThai: TRANG_THAI_HIEN_TAI || '',
+      chiTiet: chiTiet
+    };
+  }
+
+  function luuHoSo(callback) {
+    var payload = thuThapDuLieuForm();
+    if (!payload) return;
+    hienLoading(true);
+    google.script.run.withSuccessHandler(function (res) {
+      MA_HO_SO_DANG_SUA = res.maHoSo;
+      TRANG_THAI_HIEN_TAI = res.trangThai || TRANG_THAI_HIEN_TAI || 'Nháp';
+      capNhatTrangThaiHienThi_();
+      apDungKhoaFormTheoTrangThai();
+      baoThanhCong('Đã lưu hồ sơ: ' + res.maHoSo);
+      locDanhSachHoSoClick();
+      hienLoading(false);
+      if (callback) callback(res.maHoSo);
+    }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).luuHoSoGiaiNgan(payload);
+  }
+
+  function taoDeNghi() {
+    luuHoSo(function (maHoSo) {
+      hienLoading(true);
+      google.script.run.withSuccessHandler(function (url) {
+        hienLoading(false);
+        baoThanhCong('Đã tạo Đề nghị giải ngân (đề nghị thanh toán).');
+        hienLink('Đề nghị giải ngân (Đề nghị thanh toán)', url);
+      }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).taoDeNghiGiaiNgan(maHoSo);
+    });
+  }
+
+  function taoTronBo() {
+    luuHoSo(function (maHoSo) {
+      hienLoading(true);
+      google.script.run.withSuccessHandler(function (res) {
+        hienLoading(false);
+        baoThanhCong('Đã tạo trọn bộ hồ sơ vay (5 mẫu) + PDF.');
+        document.getElementById('linksBox').innerHTML = '';
+        hienLink('Giấy nhận nợ', res.giayNhanNo);
+        hienLink('Đề nghị giải ngân (Đề nghị thanh toán)', res.deNghiGiaiNgan);
+        if (res.uyNhiemChi) hienLink('Ủy nhiệm chi', res.uyNhiemChi);
+        hienLink('Bảng kê tài liệu chứng minh mục đích sử dụng vốn vay', res.bangKeTaiLieu);
+        hienLink('Phụ lục 02 - Danh sách thanh toán', res.phuLuc02);
+        hienLink('Google Doc gộp trọn bộ (để in)', res.docGop);
+        hienLink('PDF trọn bộ hồ sơ (để in/gửi ngân hàng)', res.pdf);
+      }).withFailureHandler(function (err) { hienLoading(false); baoLoi(err); }).taoTronBoHoSo(maHoSo);
+    });
+  }
+
+  /** Tạo trọn bộ 5 văn bản bằng cách copy đúng file mẫu thật (VCB) rồi điền số liệu — khuyên dùng. */
+  function taoTronBoTheoMauClick() {
+    if (TRANG_THAI_HIEN_TAI === 'Đã tạo hồ sơ') {
+      hoiXacNhan('Hồ sơ này đã được tạo văn bản trước đó. Tạo lại sẽ sinh ra file MỚI (không xoá file cũ) ' +
+        'và ghi đè link xem lại bằng bộ file mới nhất. Bạn có chắc muốn tạo lại không?', function () {
+        thucHienTaoTronBoTheoMau_();
+      });
+    } else {
+      thucHienTaoTronBoTheoMau_();
+    }
+  }
+
+  function thucHienTaoTronBoTheoMau_() {
+    luuHoSo(function (maHoSo) {
+      hienLoading(true);
+      document.getElementById('loadingMsg').textContent = 'Đang tạo văn bản theo mẫu thật, vui lòng đợi (có thể mất khoảng 30-60 giây)...';
+      google.script.run.withSuccessHandler(function (res) {
+        hienLoading(false);
+        document.getElementById('loadingMsg').textContent = 'Đang xử lý, vui lòng đợi...';
+        TRANG_THAI_HIEN_TAI = res.trangThai || TRANG_THAI_HIEN_TAI;
+        capNhatTrangThaiHienThi_();
+        apDungKhoaFormTheoTrangThai();
+        baoThanhCong('Đã tạo trọn bộ hồ sơ theo mẫu thật.');
+        document.getElementById('linksBox').innerHTML = '';
+        hienLinkCap_('Giấy nhận nợ', res.giayNhanNo);
+        hienLinkCap_('Văn bản đề nghị giải ngân', res.vanBanDeNghi);
+        hienLinkCap_('Uỷ nhiệm chi 4 liên', res.unc);
+        hienLinkCap_('Bảng kê tài liệu chứng minh MĐSDV', res.bangKeTaiLieu);
+        hienLinkCap_('Phụ lục 02 - Bảng kê UNC', res.bangKeUNC);
+        hienLink('Mở thư mục chứa 5 văn bản', res.thuMucUrl);
+        locDanhSachHoSoClick();
+      }).withFailureHandler(function (err) {
+        hienLoading(false);
+        document.getElementById('loadingMsg').textContent = 'Đang xử lý, vui lòng đợi...';
+        baoLoi(err);
+      }).taoTronBoTheoMau(maHoSo);
+    });
+  }
+
+  /** Hiện 2 link (bản gốc Doc/Sheet + PDF) cho 1 văn bản tạo theo mẫu thật. */
+  function hienLinkCap_(ten, ketQua) {
+    if (!ketQua) return;
+    var box = document.getElementById('linksBox');
+    var goc = ketQua.docUrl || ketQua.sheetUrl;
+    if (goc) {
+      var a1 = document.createElement('a');
+      a1.href = goc; a1.target = '_blank'; a1.textContent = '🔗 ' + ten + ' (bản gốc)';
+      box.appendChild(a1);
+    }
+    if (ketQua.pdfUrl) {
+      var a2 = document.createElement('a');
+      a2.href = ketQua.pdfUrl; a2.target = '_blank'; a2.textContent = '📄 ' + ten + ' (PDF)';
+      box.appendChild(a2);
+    }
+  }
+
+  function hienLink(ten, url) {
+    if (!url) return;
+    var box = document.getElementById('linksBox');
+    var a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.textContent = '🔗 ' + ten;
+    box.appendChild(a);
+  }
+
+  function hienLoading(show) {
+    document.getElementById('loadingMsg').style.display = show ? 'block' : 'none';
+  }
+
+  function baoThanhCong(msg) {
+    document.getElementById('msgBox').innerHTML = '<div class="msg msg-ok">' + msg + '</div>';
+  }
+
+  function baoLoi(err) {
+    hienLoading(false);
+    var msg = (err && err.message) ? err.message : String(err);
+    document.getElementById('msgBox').innerHTML = '<div class="msg msg-err">Lỗi: ' + msg + '</div>';
+  }
+
+  // =========================================================================
+  // TAB: BÁO CÁO TIỀN VAY
+  // =========================================================================
+  var BC_DU_LIEU = [];
+
+  function locBaoCaoTienVay() {
+    var tuNgay = document.getElementById('bc_tuNgay').value;
+    var denNgay = document.getElementById('bc_denNgay').value;
+    var tenKH = document.getElementById('bc_tenKhachHang').value.trim();
+    var trangThai = document.getElementById('bc_trangThai').value;
+    document.getElementById('msgBox').innerHTML = ''; // xoá chẩn đoán/thông báo cũ trước khi lọc mới
+    document.getElementById('bc_loading').style.display = 'block';
+    document.getElementById('bc_loading').textContent = 'Đang xử lý, vui lòng đợi...';
+    google.script.run.withSuccessHandler(function (rows) {
+      document.getElementById('bc_loading').style.display = 'none';
+      BC_DU_LIEU = rows || [];
+      renderBaoCao_();
+    }).withFailureHandler(function (err) {
+      document.getElementById('bc_loading').style.display = 'none';
+      baoLoi(err);
+    }).layBaoCaoTienVay(tuNgay, denNgay, tenKH, trangThai);
+  }
+
+  function renderBaoCao_() {
+    var tbody = document.getElementById('bc_tbody');
+    tbody.innerHTML = '';
+    var tong = 0;
+    BC_DU_LIEU.forEach(function (r, i) {
+      tong += Number(r.soTienVay) || 0;
+      var tr = document.createElement('tr');
+      var lopTrangThai = r.trangThai === 'Đã giải ngân' ? 'trangthai-daigiaingan' : 'trangthai-daotaohoso';
+      tr.innerHTML =
+        '<td>' + (i + 1) + '</td>' +
+        '<td><b>' + esc(r.maHoSo) + '</b></td>' +
+        '<td>' + esc(r.soHopDong) + '</td>' +
+        '<td>' + esc(r.soGiayNhanNo) + '</td>' +
+        '<td>' + esc(r.ngayNhanNo) + '</td>' +
+        '<td>' + esc(r.ngayGiaiNgan) + '</td>' +
+        '<td>' + esc(r.tenNguoiHuong) + '</td>' +
+        '<td style="text-align:right;">' + (Number(r.soTienVay) || 0).toLocaleString('vi-VN') + '</td>' +
+        '<td>' + esc(r.soTaiLieu) + '</td>' +
+        '<td>' + esc(r.ngayTaiLieu) + '</td>' +
+        '<td>' + esc(r.ngayDenHan) + '</td>' +
+        '<td>' + esc(r.laiSuatTrongHan) + '</td>' +
+        '<td><span class="trangthai-badge ' + lopTrangThai + '">' + esc(r.trangThai) + '</span></td>';
+      tbody.appendChild(tr);
+    });
+    document.getElementById('bc_tongTien').textContent = tong.toLocaleString('vi-VN');
+    if (!BC_DU_LIEU.length) {
+      tbody.innerHTML = '<tr><td colspan="13" style="text-align:center; color:#888; font-style:italic;">Không có dữ liệu khớp bộ lọc.</td></tr>';
+    }
+  }
+
+  function xuatExcelBaoCao() {
+    var tuNgay = document.getElementById('bc_tuNgay').value;
+    var denNgay = document.getElementById('bc_denNgay').value;
+    var tenKH = document.getElementById('bc_tenKhachHang').value.trim();
+    var trangThai = document.getElementById('bc_trangThai').value;
+    document.getElementById('bc_loading').style.display = 'block';
+    google.script.run.withSuccessHandler(function (res) {
+      document.getElementById('bc_loading').style.display = 'none';
+      var box = document.getElementById('bc_linksBox');
+      box.innerHTML = '';
+      if (res.xlsxUrl) {
+        hienLinkVao_(box, 'Tải file Excel (.xlsx)', res.xlsxUrl);
+      } else if (res.sheetUrl) {
+        hienLinkVao_(box, 'Mở Google Sheet báo cáo (xuất .xlsx bị lỗi, dùng File > Download để tải Excel)', res.sheetUrl);
+      }
+      baoThanhCong('Đã tạo báo cáo Excel.');
+    }).withFailureHandler(function (err) { document.getElementById('bc_loading').style.display = 'none'; baoLoi(err); })
+      .taoBaoCaoTienVayExcel(tuNgay, denNgay, tenKH, trangThai);
+  }
+
+  /** Xuất TOÀN BỘ dữ liệu (không áp bộ lọc) — file có sẵn AutoFilter để lọc ngay trong Excel, đáng
+   *  tin cậy hơn lọc "live" nhiều lần trên web (không phụ thuộc độ trễ đọc Google Sheets). */
+  function xuatExcelToanBo() {
+    document.getElementById('bc_loading').style.display = 'block';
+    document.getElementById('bc_loading').textContent = 'Đang xuất toàn bộ dữ liệu...';
+    google.script.run.withSuccessHandler(function (res) {
+      document.getElementById('bc_loading').style.display = 'none';
+      var box = document.getElementById('bc_linksBox');
+      box.innerHTML = '';
+      if (res.xlsxUrl) {
+        hienLinkVao_(box, 'Tải file Excel — TOÀN BỘ dữ liệu (.xlsx)', res.xlsxUrl);
+      } else if (res.sheetUrl) {
+        hienLinkVao_(box, 'Mở Google Sheet — TOÀN BỘ dữ liệu', res.sheetUrl);
+      }
+      baoThanhCong('Đã xuất toàn bộ dữ liệu ra Excel — mở file và dùng nút lọc (▼) trên dòng tiêu đề để lọc theo ý muốn.');
+    }).withFailureHandler(function (err) { document.getElementById('bc_loading').style.display = 'none'; baoLoi(err); })
+      .taoBaoCaoTienVayExcelToanBo();
+  }
+
+  function inBaoCao() {
+    var tuNgay = document.getElementById('bc_tuNgay').value;
+    var denNgay = document.getElementById('bc_denNgay').value;
+    var tenKH = document.getElementById('bc_tenKhachHang').value.trim();
+    var trangThai = document.getElementById('bc_trangThai').value;
+    var nguoiLap = document.getElementById('nguoiLapBieu').value.trim();
+    document.getElementById('bc_loading').style.display = 'block';
+    google.script.run.withSuccessHandler(function (res) {
+      document.getElementById('bc_loading').style.display = 'none';
+      var box = document.getElementById('bc_linksBox');
+      box.innerHTML = '';
+      hienLinkVao_(box, 'Google Doc (để xem/in)', res.docUrl);
+      hienLinkVao_(box, 'PDF bản in', res.pdfUrl);
+      baoThanhCong('Đã tạo bản in báo cáo.');
+    }).withFailureHandler(function (err) { document.getElementById('bc_loading').style.display = 'none'; baoLoi(err); })
+      .taoBaoCaoTienVayDoc(tuNgay, denNgay, tenKH, nguoiLap, trangThai);
+  }
+
+  function hienLinkVao_(box, ten, url) {
+    if (!url) return;
+    var a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.textContent = '🔗 ' + ten;
+    box.appendChild(a);
+  }
+
+</script>
