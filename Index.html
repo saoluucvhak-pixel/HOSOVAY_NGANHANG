@@ -94,6 +94,10 @@
       <h3 style="margin-top:0;">Danh mục công ty vay vốn</h3>
       <div class="grid">
         <div>
+          <label>Tìm nhanh công ty <span class="hint">(gõ để lọc danh sách bên dưới)</span></label>
+          <input id="timCongTyEdit" placeholder="Gõ tên công ty..." oninput="locSelectTheoTuKhoa_(this, 'selCongTyEdit')">
+        </div>
+        <div>
           <label>Công ty đã có (để sửa) / để trống để tạo mới</label>
           <select id="selCongTyEdit" onchange="onChonCongTyEdit()"></select>
         </div>
@@ -124,6 +128,13 @@
       <h3 style="margin-top:0;">Danh mục hợp đồng cho vay theo hạn mức</h3>
       <div class="grid">
         <div>
+          <label>Tìm nhanh hợp đồng <span class="hint">(gõ số hợp đồng hoặc tên công ty)</span></label>
+          <input id="timHopDongEdit" placeholder="Gõ số hợp đồng hoặc tên công ty..." oninput="locSelectTheoTuKhoa_(this, 'selHopDongEdit')">
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <div class="grid">
+        <div>
           <label>Hợp đồng đã có (để sửa) / để trống để tạo mới</label>
           <select id="selHopDongEdit" onchange="onChonHopDongEdit()"></select>
         </div>
@@ -150,6 +161,8 @@
           <input id="hd_moTaLaiSuatQuaHan" placeholder="VD: 150% Lãi suất cho vay trong hạn tại thời điểm chuyển nợ quá hạn"></div>
         <div><label>Kỳ hạn trả gốc</label><input id="hd_kyHanTraGoc" placeholder="VD: Cuối kỳ"></div>
         <div><label>Kỳ hạn trả lãi</label><input id="hd_kyHanTraLai" placeholder="VD: Hàng tháng"></div>
+        <div><label>Hậu tố tham chiếu <span class="hint">(dùng để tự sinh "Số tham chiếu" hồ sơ, dạng ddMMyyyy-hậu tố)</span></label>
+          <input id="hd_hauToThamChieu" placeholder="VD: TTBK-BL-01"></div>
       </div>
       <button class="btn btn-primary" onclick="luuHopDongClick()">💾 Lưu hợp đồng vay</button>
     </div>
@@ -209,7 +222,7 @@
       </div>
       <div>
         <label>Hợp đồng cho vay theo hạn mức *</label>
-        <select id="selHopDong"></select>
+        <select id="selHopDong" onchange="tinhSoThamChieu_()"></select>
         <span id="thongBaoSoHopDong" class="hint"></span>
       </div>
       <div><label>Trạng thái hồ sơ</label>
@@ -234,12 +247,13 @@
           <option>Tiền mặt</option>
         </select>
       </div>
-      <div><label>Ngày giải ngân</label><input id="ngayGiaiNgan" type="date" onchange="tinhNgayDenHan()"></div>
+      <div><label>Ngày giải ngân</label><input id="ngayGiaiNgan" type="date" onchange="tinhNgayDenHan(); tinhSoThamChieu_();"></div>
 
       <div><label>Ngày đến hạn <span class="hint">(tự động = Ngày giải ngân + Thời hạn vay)</span></label>
         <input id="ngayDenHan" type="date" readonly style="background:#f0f2f4;"></div>
       <div><label>Thời hạn cho vay (số ngày)</label><input id="thoiHanChoVayNgay" type="number" onchange="tinhNgayDenHan()" oninput="tinhNgayDenHan()"></div>
-      <div><label>Số tham chiếu</label><input id="soThamChieu" placeholder="VD: LTT:08072026-29143928/2026/TTBK-BL-01"></div>
+      <div><label>Số tham chiếu <span class="hint">(tự động = ddMMyyyy-Hậu tố, theo hợp đồng đang chọn — vẫn có thể sửa tay)</span></label>
+        <input id="soThamChieu" placeholder="VD: 22072026-TTBK-BL-01"></div>
 
       <div style="grid-column: span 2;"><label>Mục đích sử dụng vốn vay <span class="hint">(để trống sẽ tự ghi "Bổ sung vốn lưu động")</span></label><input id="mucDichSuDungVon" placeholder="VD: Bổ sung vốn lưu động"></div>
       <div><label>Người lập biểu</label>
@@ -370,6 +384,7 @@
     <div class="modal-box">
       <h3 id="modalTaiLieuTitle" style="margin-top:0;">Chọn số hoá đơn</h3>
       <div class="hint" style="margin-bottom:8px;">
+        Mỗi dòng là 1 hoá đơn ĐÃ GỘP (đã cộng tổng số tiền của các mặt hàng trong cùng hoá đơn).
         Tick chọn 1 hoặc nhiều hoá đơn — "Tài liệu số" và "Ngày tài liệu" sẽ được điền tự động, cách nhau bởi dấu phẩy.
       </div>
       <div id="modalTaiLieuBody"></div>

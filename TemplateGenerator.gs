@@ -155,20 +155,33 @@ function dienBangThuHuongVanBanDeNghi_(body, chiTiet) {
 
   var soCotMau = bang.getRow(soHangMau).getNumCells();
   var tongTien = 0;
+  var hangMau = bang.getRow(soHangMau); 
 
   chiTiet.forEach(function (ct, idx) {
     var hang;
     if (idx === 0) {
-      hang = bang.getRow(soHangMau);
+      // Dòng đầu tiên: Dùng luôn dòng mẫu có sẵn trên file Docs
+      hang = hangMau;
     } else {
+      // Các dòng tiếp theo: Sinh ra 1 dòng trống hoàn toàn mới để tránh lỗi cấu trúc
       hang = bang.insertTableRow(soHangMau + idx);
-      for (var cc = 0; cc < soCotMau; cc++) hang.appendTableCell('');
+      
+      // Lặp qua từng ô của dòng mẫu, COPY ô đó và nhét vào dòng mới
+      for (var c = 0; c < soCotMau; c++) {
+        var oMau = hangMau.getCell(c);
+        var oMoi = oMau.copy(); // Copy nguyên bản cell (lấy trọn viền, lề, font)
+        oMoi.setText('');       // Xoá nội dung (placeholder) bên trong ô vừa copy
+        hang.appendTableCell(oMoi); // Nhét ô đã copy vào dòng mới
+      }
     }
+    
+    // Đổ dữ liệu thật vào các ô
     if (soCotMau > 0) hang.getCell(0).setText(ct.TenNguoiHuong || '');
     if (soCotMau > 1) hang.getCell(1).setText(ct.SoTaiKhoan || '');
     if (soCotMau > 2) hang.getCell(2).setText(ct.TaiNganHang || '');
     if (soCotMau > 3) hang.getCell(3).setText(ct.NoiDungThanhToan || '');
     if (soCotMau > 4) hang.getCell(4).setText(formatSo_(ct.SoTien));
+    
     tongTien += Number(ct.SoTien) || 0;
   });
 
@@ -205,7 +218,7 @@ function taoUNCTheoMau(maHoSo) {
   });
 
   SpreadsheetApp.flush();
-  var pdfUrl = xuatPdfTheoMauSheet_(copy.getId(), sh.getSheetId(), tenFile, folder);
+  var pdfUrl = xuatPdfTheoMauSheet_(copy.getId(), sh.getSheetId(), tenFile, folder,true);
   return { sheetUrl: copy.getUrl(), pdfUrl: pdfUrl, ten: tenFile };
 }
 
@@ -292,14 +305,26 @@ function taoBangKeUNCTheoMau(maHoSo) {
   sh.getRange('B' + dongNguoiLap).setValue(hoSo.NguoiLapBieu || '');
 
   SpreadsheetApp.flush();
-  var pdfUrl = xuatPdfTheoMauSheet_(copy.getId(), sh.getSheetId(), tenFile, folder);
+  var pdfUrl = xuatPdfTheoMauSheet_(copy.getId(), sh.getSheetId(), tenFile, folder,false);
   return { sheetUrl: copy.getUrl(), pdfUrl: pdfUrl, ten: tenFile };
 }
 
 /** Xuất 1 sheet (theo gid) trong file Google Sheet thành PDF qua URL export, lưu cùng thư mục. */
-function xuatPdfTheoMauSheet_(spreadsheetId, sheetId, tenGoc, folder) {
-  var url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?format=pdf&gid=' + sheetId +
-    '&portrait=false&fitw=true&gridlines=false';
+/** Xuất 1 sheet (theo gid) trong file Google Sheet thành PDF qua URL export, lưu cùng thư mục. */
+function xuatPdfTheoMauSheet_(spreadsheetId, sheetId, tenGoc, folder, isPortrait) {
+  // Nếu isPortrait là true -> In dọc. Nếu false -> In ngang
+  var huongIn = isPortrait ? 'true' : 'false';
+  
+  var url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + 
+    '/export?format=pdf&gid=' + sheetId +
+    '&size=A4' +               // Bắt buộc khổ giấy A4
+    '&portrait=' + huongIn +   // Tuỳ chỉnh hướng in dọc/ngang
+    '&fitw=true' +             // Ép vừa chiều rộng trang
+    '&gridlines=false' +       // Ẩn đường lưới mờ
+    '&printtitle=false' + 
+    '&sheetnames=false' + 
+    '&pagenumbers=false';      // Ẩn số trang mặc định
+
   var resp = UrlFetchApp.fetch(url, {
     headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
     muteHttpExceptions: true

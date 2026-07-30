@@ -26,21 +26,24 @@ function sheetToObjects_(sheetName) {
 
 /** Danh sách công ty vay vốn (cho dropdown). */
 function layDanhSachCongTy() {
-  return sheetToObjects_(SHEET_CONGTY);
+  var all = sheetToObjects_(SHEET_CONGTY);
+  return chuyenDoiDateThanhChuoi_(all);
 }
 
 /** Danh sách hợp đồng vay (cho dropdown), lọc theo MaCty nếu truyền vào. */
 function layDanhSachHopDong(maCty) {
   var all = sheetToObjects_(SHEET_HOPDONG);
-  if (!maCty) return all;
-  return all.filter(function (x) { return String(x.MaCty) === String(maCty); });
+  var ketQua = all;
+  if (maCty) {
+    ketQua = all.filter(function (x) { return String(x.MaCty) === String(maCty); });
+  }
+  return chuyenDoiDateThanhChuoi_(ketQua);
 }
 
-/** Toàn bộ hồ sơ giải ngân đã tạo (cho danh sách/lịch sử). */
-function layDanhSachHoSo() {
-  var list = sheetToObjects_(SHEET_HOSO);
-  list.sort(function (a, b) { return (b._row || 0) - (a._row || 0); });
-  return list;
+/** Danh sách khách hàng/nhà cung cấp (thụ hưởng) để chọn khi lập UNC thanh toán. */
+function layDanhSachKhachHang() {
+  var all = sheetToObjects_(SHEET_KHACHHANG);
+  return chuyenDoiDateThanhChuoi_(all);
 }
 
 /**
@@ -210,7 +213,7 @@ function timDongTheoMa_(sheetName, maCot, giaTri) {
 /**
  * Lưu (tạo mới/cập nhật) 1 công ty vay vốn ở tab DM_CongTy.
  * payload = { maCty (rỗng nếu tạo mới), tenCty, maCIF, diaChiTruSo, dienThoai, fax,
- *             nguoiDaiDien, chucVu, giayUyQuyenSo, giayUyQuyenNgay }
+ *             nguoiDaiDien, chucVu, giayUyQuyenSo, giayUyQuyenNgay, nguoiLapBieu }
  */
 function luuCongTy(payload) {
   if (!payload.tenCty) throw new Error('Vui lòng nhập Tên công ty.');
@@ -240,7 +243,7 @@ function luuCongTy(payload) {
  * Lưu (tạo mới/cập nhật) 1 hợp đồng cho vay theo hạn mức ở tab DM_HopDongVay.
  * payload = { maHD (rỗng nếu tạo mới), maCty, soHopDong, ngayHopDong, tenNganHang, chiNhanh,
  *             diaChiChiNhanh, mstChiNhanh, hanMucVay, laiSuatTrongHan, moTaLaiSuatQuaHan,
- *             laiSuatLaiChamTra, kyHanTraGoc, kyHanTraLai }
+ *             laiSuatLaiChamTra, kyHanTraGoc, kyHanTraLai, hauToThamChieu }
  */
 function luuHopDong(payload) {
   if (!payload.maCty) throw new Error('Vui lòng chọn công ty vay vốn.');
@@ -256,7 +259,7 @@ function luuHopDong(payload) {
     payload.mstChiNhanh || '', Number(payload.hanMucVay) || 0,
     Number(payload.laiSuatTrongHan) || 0, payload.moTaLaiSuatQuaHan || '',
     Number(payload.laiSuatLaiChamTra) || 0, payload.kyHanTraGoc || 'Cuối kỳ',
-    payload.kyHanTraLai || 'Hàng tháng'
+    payload.kyHanTraLai || 'Hàng tháng', payload.hauToThamChieu || ''
   ];
 
   if (isNew) {
@@ -287,6 +290,14 @@ function luuHoSoGiaiNgan(payload) {
   var maHoSo = payload.maHoSo;
   var isNew = !maHoSo;
   if (isNew) maHoSo = sinhMaTuDong_(SHEET_HOSO, 'HS', 4);
+
+  // ===== Xác thực dữ liệu (hàng rào cuối cùng phía server — phòng trường hợp gọi thẳng qua API,
+  // bỏ qua kiểm tra phía giao diện ở JavaScript.html) =====
+  var chiTietKiemTra = payload.chiTiet || [];
+  var tongThuHuongKiemTra = chiTietKiemTra.reduce(function (s, ct) { return s + (Number(ct.soTien) || 0); }, 0);
+  if (!chiTietKiemTra.length || tongThuHuongKiemTra <= 0) {
+    throw new Error('Hồ sơ phải có ít nhất 1 dòng thụ hưởng với Số tiền lớn hơn 0 ở mục 4.');
+  }
 
   var soTienBangChu = soThanhChuVN(payload.soTienNhanNoLanNay);
   var headers = shHoSo.getRange(1, 1, 1, shHoSo.getLastColumn()).getValues()[0];
@@ -418,6 +429,12 @@ function layTapSoHDDaSuDung_(maHoSoBoQua) {
   return tap;
 }
 
+/**
+ * Lấy danh sách hoá đơn của 1 nhà cung cấp/khách hàng từ Sổ chi tiết mua hàng, ĐÃ GỘP NHÓM theo
+ * (Nhà cung cấp + Số hoá đơn + Ngày hoá đơn) và CỘNG DỒN số tiền của các dòng cùng nhóm — vì
+ * thanh toán được thực hiện theo NGUYÊN hoá đơn (không theo từng mặt hàng/dòng lẻ trong hoá đơn),
+ * nên tránh để 1 hoá đơn xuất hiện lặp lại nhiều lần với số tiền từng dòng nhỏ lẻ.
+ */
 function layDanhSachTaiLieuTheoNhaCungCap(tenNguoiHuong, maHoSoHienTai) {
   if (!tenNguoiHuong) return [];
 
@@ -437,8 +454,9 @@ function layDanhSachTaiLieuTheoNhaCungCap(tenNguoiHuong, maHoSoHienTai) {
   var idxGiaTri = timCotTheoTenHoacViTri_(headers, 'giatri', 14);
 
   var chuan = chuanHoaChuoi_(tenNguoiHuong);
-  var khopChinhXac = [];
-  var khopGanDung = [];
+
+  var nhomChinhXac = {}, thuTuChinhXac = [];
+  var nhomGanDung = {}, thuTuGanDung = [];
 
   for (var r = 1; r < values.length; r++) {
     var row = values[r];
@@ -449,31 +467,48 @@ function layDanhSachTaiLieuTheoNhaCungCap(tenNguoiHuong, maHoSoHienTai) {
     if (soHD === '' || soHD === null || soHD === undefined || !ngay) continue;
 
     var nccChuan = chuanHoaChuoi_(nccRaw);
-    var giaTri = soTuChuoiHoacSo_(row[idxGiaTri]);
-    var item = {
-      sohd: String(soHD).trim(),
-      ngay: (ngay instanceof Date) ? Utilities.formatDate(ngay, 'Asia/Ho_Chi_Minh', 'dd/MM/yyyy') : String(ngay),
-      ngaySort: (ngay instanceof Date) ? ngay.getTime() : 0,
-      dienGiai: idxDienGiai >= 0 ? String(row[idxDienGiai] || '') : '',
-      nhaCungCap: String(nccRaw).trim(),
-      giaTri: giaTri
-    };
+    var laKhopChinhXac = (nccChuan === chuan);
+    var laKhopGanDung = !laKhopChinhXac && (nccChuan.indexOf(chuan) >= 0 || chuan.indexOf(nccChuan) >= 0);
+    if (!laKhopChinhXac && !laKhopGanDung) continue;
 
-    if (nccChuan === chuan) {
-      khopChinhXac.push(item);
-    } else if (nccChuan.indexOf(chuan) >= 0 || chuan.indexOf(nccChuan) >= 0) {
-      khopGanDung.push(item);
+    var giaTriDong = soTuChuoiHoacSo_(row[idxGiaTri]);
+    var ngayStr = (ngay instanceof Date) ? Utilities.formatDate(ngay, 'Asia/Ho_Chi_Minh', 'dd/MM/yyyy') : String(ngay);
+    var soHDStr = String(soHD).trim();
+    var dienGiaiDong = idxDienGiai >= 0 ? String(row[idxDienGiai] || '') : '';
+    var key = nccChuan + '|' + soHDStr + '|' + ngayStr;
+
+    var nhom = laKhopChinhXac ? nhomChinhXac : nhomGanDung;
+    var thuTu = laKhopChinhXac ? thuTuChinhXac : thuTuGanDung;
+
+    if (!nhom[key]) {
+      nhom[key] = {
+        sohd: soHDStr,
+        ngay: ngayStr,
+        ngaySort: (ngay instanceof Date) ? ngay.getTime() : 0,
+        dienGiai: dienGiaiDong,
+        nhaCungCap: String(nccRaw).trim(),
+        giaTri: 0,
+        soDong: 0
+      };
+      thuTu.push(key);
     }
+    nhom[key].giaTri += giaTriDong;
+    nhom[key].soDong++;
   }
 
-  var ketQua = khopChinhXac.length ? khopChinhXac : khopGanDung;
-  var daThay = {};
-  var out = [];
-  ketQua.forEach(function (it) {
-    var key = it.sohd + '|' + it.ngay + '|' + it.giaTri;
-    if (daThay[key]) return;
-    daThay[key] = true;
-    out.push(it);
+  var dungNhom = thuTuChinhXac.length ? nhomChinhXac : nhomGanDung;
+  var dungThuTu = thuTuChinhXac.length ? thuTuChinhXac : thuTuGanDung;
+
+  var out = dungThuTu.map(function (key) {
+    var it = dungNhom[key];
+    return {
+      sohd: it.sohd,
+      ngay: it.ngay,
+      ngaySort: it.ngaySort,
+      dienGiai: it.soDong > 1 ? (it.dienGiai + ' (gộp ' + it.soDong + ' dòng)') : it.dienGiai,
+      nhaCungCap: it.nhaCungCap,
+      giaTri: it.giaTri
+    };
   });
 
   var daDung = layTapSoHDDaSuDung_(maHoSoHienTai);
@@ -574,6 +609,13 @@ function capNhatBaoCaoDraft_() {
     ]);
   });
 
+  // Đặt định dạng TEXT (@) cho các cột ngày TRƯỚC khi ghi dữ liệu, để Google Sheets không tự
+  // suy đoán/định dạng lại kiểu Date theo locale máy (tránh hiển thị sai khác dd/mm/yyyy).
+  var cotNgayDraft = [5, 6, 10, 11]; // NgayNhanNo, NgayGiaiNgan, NgayTaiLieu, NgayDenHan
+  cotNgayDraft.forEach(function (c) {
+    sh.getRange(1, c, data.length, 1).setNumberFormat('@');
+  });
+
   sh.getRange(1, 1, data.length, header.length).setValues(data);
   sh.getRange(1, 1, 1, header.length).setFontWeight('bold');
   SpreadsheetApp.flush();
@@ -640,15 +682,24 @@ function locBaoCaoTienVayQuaSheet(tuNgay, denNgay, tenKhachHang, trangThai) {
 }
 
 function layBaoCaoTienVay(tuNgay, denNgay, tenKhachHang, trangThai) {
-  var out = layBaoCaoTienVay_(tuNgay, denNgay, tenKhachHang, trangThai);
-  var lanThu = 0;
-  while (out.length === 0 && lanThu < 2) {
-    Utilities.sleep(400 + lanThu * 300);
-    out = layBaoCaoTienVay_(tuNgay, denNgay, tenKhachHang, trangThai);
-    lanThu++;
+  try {
+    // Gọi thẳng vào hàm gốc bên dưới, không qua trung gian nào khác để chống tràn stack
+    return layBaoCaoTienVay_(tuNgay, denNgay, tenKhachHang, trangThai);
+  } catch (e) {
+    // Nếu có lỗi, trả về mảng rỗng để giao diện không bị sập
+    Logger.log("Lỗi tại layBaoCaoTienVay: " + e.message);
+    return [];
   }
-  return out;
 }
+
+
+
+
+
+
+
+
+
 
 /**
  * Tối ưu: Lọc báo cáo trực tiếp từ dữ liệu gốc với logic kiểm tra an toàn
@@ -660,7 +711,9 @@ function layBaoCaoTienVay_(tuNgay, denNgay, tenKhachHang, trangThai) {
 
   var tu = tuNgay ? new Date(tuNgay + 'T00:00:00') : null;
   var den = denNgay ? new Date(denNgay + 'T23:59:59') : null;
-  var tuKhoa = chuanHoaChuoi_(tenKhachHang || '');
+  
+  // Dùng hàm xóa dấu riêng biệt ở server
+  var tuKhoa = boDauTiengViet_(tenKhachHang); 
   
   var trangThaiLoc = String(trangThai || '').trim().normalize('NFC');
   var isAllTrangThai = (!trangThaiLoc || trangThaiLoc === 'ALL' || trangThaiLoc.toLowerCase() === 'chọn tất cả' || trangThaiLoc.toLowerCase() === '-- tất cả --');
@@ -678,24 +731,42 @@ function layBaoCaoTienVay_(tuNgay, denNgay, tenKhachHang, trangThai) {
 
   var out = [];
   dsHoSo.forEach(function (hs) {
+    // 1. Lọc theo trạng thái
     if (!isAllTrangThai) {
       var statusRow = String(hs.TrangThai || '').trim().normalize('NFC');
       if (statusRow.toLowerCase() !== trangThaiLoc.toLowerCase()) return;
     }
 
-    var ngayGN = hs.NgayGiaiNgan instanceof Date ? hs.NgayGiaiNgan : (hs.NgayGiaiNgan ? new Date(hs.NgayGiaiNgan) : null);
-    if (ngayGN && !isNaN(ngayGN.getTime())) {
-      if (tu && ngayGN < tu) return;
-      if (den && ngayGN > den) return;
+    // 2. Lọc theo Ngày Giải Ngân (Xử lý thông minh cả kiểu String và Date của Google Sheets)
+    var ngayGN = null;
+    if (hs.NgayGiaiNgan instanceof Date) {
+        ngayGN = hs.NgayGiaiNgan;
+    } else if (typeof hs.NgayGiaiNgan === 'string' && hs.NgayGiaiNgan.trim() !== '') {
+        // Tự động phân tích ngày dạng dd/MM/yyyy nếu Google Sheets hiểu lầm là Text
+        var m = hs.NgayGiaiNgan.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if (m) {
+            ngayGN = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+        } else {
+            ngayGN = new Date(hs.NgayGiaiNgan);
+        }
+    }
+    
+    // Nếu có chọn Từ Ngày / Đến Ngày thì mới đối chiếu
+    if (tu || den) {
+        if (!ngayGN || isNaN(ngayGN.getTime())) return; 
+        if (tu && ngayGN < tu) return;
+        if (den && ngayGN > den) return;
     }
 
     var hd = hopDongByMa[hs.MaHD];
     var laiSuat = hd ? hd['LaiSuatTrongHan_%'] : '';
     var soHopDong = hd ? hd.SoHopDong : '';
 
+    // 3. Lọc theo Tên Khách Hàng (Tương đối, không phân biệt dấu)
     var dsCt = chiTietByHoSo[String(hs.MaHoSo || '').trim()] || [];
     dsCt.forEach(function (ct) {
-      if (tuKhoa && chuanHoaChuoi_(ct.TenNguoiHuong).indexOf(tuKhoa) < 0) return;
+      if (tuKhoa && boDauTiengViet_(ct.TenNguoiHuong).indexOf(tuKhoa) < 0) return;
+      
       out.push({
         maHoSo: hs.MaHoSo,
         trangThai: hs.TrangThai || '',
@@ -715,4 +786,51 @@ function layBaoCaoTienVay_(tuNgay, denNgay, tenKhachHang, trangThai) {
 
   out.sort(function (a, b) { return String(b.ngayGiaiNgan).localeCompare(String(a.ngayGiaiNgan)); });
   return out;
+}
+
+// Cần dán thêm hàm hỗ trợ này vào file DATASERVICE.GS
+function boDauTiengViet_(str) {
+  if (!str) return '';
+  return String(str).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+}
+
+function testLoiHopDong() {
+  var tatCa = layDanhSachHopDong();
+  Logger.log("Tổng số hợp đồng tìm thấy: " + tatCa.length);
+  Logger.log(tatCa);
+}
+
+// 1. Hàm chuẩn hóa ngày tháng chống lệch định dạng
+function chuanHoaNgay_(ngayStr) {
+  if (!ngayStr) return "";
+  if (typeof ngayStr === 'number') {
+    var d = new Date(Math.round((ngayStr - 25569) * 86400 * 1000));
+    var day = ('0' + d.getDate()).slice(-2);
+    var month = ('0' + (d.getMonth() + 1)).slice(-2);
+    var year = d.getFullYear();
+    return day + '/' + month + '/' + year;
+  }
+  var str = String(ngayStr).trim();
+  if (str.indexOf(',') !== -1) {
+    return str.split(',').map(function(item) { return item.trim(); }).filter(Boolean).join(', ');
+  }
+  return str;
+}
+
+// 2. Hàm lấy và bọc dữ liệu báo cáo trả về giao diện
+function layBaoCaoTienVay(tuNgay, denNgay, tenKhachHang, trangThai) {
+  // Lấy dữ liệu từ hàm gốc của bạn
+  var danhSach = layBaoCaoTienVay_(tuNgay, denNgay, tenKhachHang, trangThai);
+  
+  // Tự động quét và chuẩn hóa toàn bộ ngày tháng để không bị lỗi hiển thị
+  if (danhSach && danhSach.forEach) {
+    danhSach.forEach(function(r) {
+      if (r.ngayNhanNo) r.ngayNhanNo = chuanHoaNgay_(r.ngayNhanNo);
+      if (r.ngayGiaiNgan) r.ngayGiaiNgan = chuanHoaNgay_(r.ngayGiaiNgan);
+      if (r.ngayTaiLieu) r.ngayTaiLieu = chuanHoaNgay_(r.ngayTaiLieu);
+      if (r.ngayDenHan) r.ngayDenHan = chuanHoaNgay_(r.ngayDenHan);
+    });
+  }
+  
+  return danhSach;
 }
