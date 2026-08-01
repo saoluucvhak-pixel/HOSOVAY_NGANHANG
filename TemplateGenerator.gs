@@ -14,9 +14,9 @@ function tenFileTheoMau_(ten, maHoSo) {
   return ten + '_' + maHoSo + '_' + ngay;
 }
 
-/** Thư mục con theo Mã hồ sơ, nằm trong thư mục xuất báo cáo theo mẫu (THU_MUC_XUAT_THEO_MAU_ID). */
+/** Thư mục con theo Mã hồ sơ, nằm trong thư mục xuất báo cáo theo mẫu (CauHinh_().thuMucXuatTheoMauId). */
 function layThuMucXuatTheoMau_(maHoSo) {
-  var goc = DriveApp.getFolderById(THU_MUC_XUAT_THEO_MAU_ID);
+  var goc = DriveApp.getFolderById(CauHinh_().thuMucXuatTheoMauId);
   var it = goc.getFoldersByName(maHoSo);
   if (it.hasNext()) return it.next();
   return goc.createFolder(maHoSo);
@@ -76,7 +76,7 @@ function taoGiayNhanNoTheoMau(maHoSo) {
 
   var folder = layThuMucXuatTheoMau_(maHoSo);
   var tenFile = tenFileTheoMau_('GIAYNHANNO_VCB', maHoSo);
-  var copy = DriveApp.getFileById(TEMPLATE_GIAYNHANNO_ID).makeCopy(tenFile, folder);
+  var copy = DriveApp.getFileById(CauHinh_().templateGiayNhanNoId).makeCopy(tenFile, folder);
   var doc = DocumentApp.openById(copy.getId());
   var body = doc.getBody();
 
@@ -116,7 +116,7 @@ function taoVanBanDeNghiTheoMau(maHoSo) {
 
   var folder = layThuMucXuatTheoMau_(maHoSo);
   var tenFile = tenFileTheoMau_('VANBANDENGHIGIAINGAN', maHoSo);
-  var copy = DriveApp.getFileById(TEMPLATE_VANBAN_DENGHI_ID).makeCopy(tenFile, folder);
+  var copy = DriveApp.getFileById(CauHinh_().templateVanBanDeNghiId).makeCopy(tenFile, folder);
   var doc = DocumentApp.openById(copy.getId());
   var body = doc.getBody();
 
@@ -197,7 +197,7 @@ function taoUNCTheoMau(maHoSo) {
 
   var folder = layThuMucXuatTheoMau_(maHoSo);
   var tenFile = tenFileTheoMau_('UNC_4lien', maHoSo);
-  var copy = DriveApp.getFileById(TEMPLATE_UNC_4LIEN_ID).makeCopy(tenFile, folder);
+  var copy = DriveApp.getFileById(CauHinh_().templateUNC4LienId).makeCopy(tenFile, folder);
   var ss = SpreadsheetApp.openById(copy.getId());
   var sh = ss.getSheets()[0];
 
@@ -231,7 +231,7 @@ function taoBangKeTaiLieuTheoMau(maHoSo) {
 
   var folder = layThuMucXuatTheoMau_(maHoSo);
   var tenFile = tenFileTheoMau_('BangKe_HD_GiaiNgan', maHoSo);
-  var copy = DriveApp.getFileById(TEMPLATE_BANGKE_HD_GIAINGAN_ID).makeCopy(tenFile, folder);
+  var copy = DriveApp.getFileById(CauHinh_().templateBangKeHDGiaiNganId).makeCopy(tenFile, folder);
   var ss = SpreadsheetApp.openById(copy.getId());
   var sh = ss.getSheetByName('Sheet1 (2)') || ss.getSheets()[0];
 
@@ -267,6 +267,13 @@ function taoBangKeTaiLieuTheoMau(maHoSo) {
   return { sheetUrl: copy.getUrl(), pdfUrl: pdfUrl, ten: tenFile };
 }
 
+/** true nếu tên ngân hàng là Vietcombank (VCB) — chấp nhận nhiều cách viết khác nhau. */
+function laVietcombank_(tenNganHang) {
+  var s = String(tenNganHang || '').toLowerCase();
+  return s.indexOf('vietcombank') >= 0 || s.indexOf('vcb') >= 0 ||
+    s.indexOf('ngoại thương') >= 0 || s.indexOf('ngoai thuong') >= 0;
+}
+
 // =========================================================================
 // 5. PHỤ LỤC 02 - BẢNG KÊ DANH SÁCH THANH TOÁN / UỶ NHIỆM CHI (Sheets, bảng nhiều dòng)
 // =========================================================================
@@ -276,7 +283,7 @@ function taoBangKeUNCTheoMau(maHoSo) {
 
   var folder = layThuMucXuatTheoMau_(maHoSo);
   var tenFile = tenFileTheoMau_('BangKe_UNC_4lien', maHoSo);
-  var copy = DriveApp.getFileById(TEMPLATE_BANGKE_UNC_4LIEN_ID).makeCopy(tenFile, folder);
+  var copy = DriveApp.getFileById(CauHinh_().templateBangKeUNC4LienId).makeCopy(tenFile, folder);
   var ss = SpreadsheetApp.openById(copy.getId());
   var sh = ss.getSheets()[0];
 
@@ -292,9 +299,11 @@ function taoBangKeUNCTheoMau(maHoSo) {
     var tien = Number(ct.SoTien) || 0;
     tong += tien;
     rows.push([i + 1, ct.SoTaiKhoan || '', 'VND', ct.TenNguoiHuong || '', tien, ct.NoiDungThanhToan || '',
-      ct.ChuyenTienNhanh_24_7 === 'Y' ? 'Y' : 'N', ct.TaiNganHang || '', ct.NgayCapGiayToTuyThan || '', ct.GhiChu || '']);
+      ct.ChuyenTienNhanh_24_7 === 'Y' ? 'Y' : '', // để trống nếu hồ sơ không đánh dấu chuyển tiền nhanh (thay vì ghi "N")
+      laVietcombank_(ct.TaiNganHang) ? '' : (ct.TaiNganHang || ''), // để trống nếu người hưởng cùng nhận tại VCB
+      ct.NgayCapGiayToTuyThan || '', ct.GhiChu || '']);
   });
-  if (!rows.length) rows.push(['', '', 'VND', '', 0, '', 'N', '', '', '']);
+  if (!rows.length) rows.push(['', '', 'VND', '', 0, '', '', '', '', '']);
   sh.getRange(dongDauDuLieu, 1, rows.length, 10).setValues(rows);
 
   var dongTongCong = dongDauDuLieu + soDongCanCo;

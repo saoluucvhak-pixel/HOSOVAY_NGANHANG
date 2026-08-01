@@ -55,7 +55,7 @@ function formatNgayDayDu_(v) {
 // ---------- Drive: thư mục gốc ----------
 
 function layThuMucGoc_() {
-  return DriveApp.getFolderById(THU_MUC_GOC_ID);
+  return DriveApp.getFolderById(CauHinh_().thuMucGocId);
 }
 
 // =========================================================================
@@ -71,7 +71,7 @@ function layThuMucBaoCao_() {
 
 /**
  * Tạo Google Doc "BẢNG KÊ CHI TIẾT TIỀN VAY THEO KHẾ ƯỚC" (để in), kèm xuất PDF.
- * Lưu vào thư mục con "BaoCao_TienVay" bên trong thư mục gốc (THU_MUC_GOC_ID).
+ * Lưu vào thư mục con "BaoCao_TienVay" bên trong thư mục gốc (CauHinh_().thuMucGocId).
  * Trả về { docUrl, pdfUrl }.
  */
 function taoBaoCaoTienVayDoc(tuNgay, denNgay, tenKhachHang, nguoiLapBieu, trangThai) {

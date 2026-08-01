@@ -25,9 +25,86 @@ function sheetToObjects_(sheetName) {
 }
 
 /** Danh sách công ty vay vốn (cho dropdown). */
+/** Bộ (set) các MaHD đã có ít nhất 1 Hồ sơ giải ngân gắn vào — dùng để xác định "đang sử dụng". */
+function layBoMaHopDongCoHoSo_() {
+  var bo = {};
+  var sh = getSS_().getSheetByName(SHEET_HOSO);
+  if (!sh) return bo;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return bo;
+  var soCot = sh.getLastColumn();
+  var values = sh.getRange(1, 1, lastRow, soCot).getValues();
+  var idx = values[0].indexOf('MaHD');
+  if (idx < 0) return bo;
+  for (var r = 1; r < values.length; r++) {
+    var v = values[r][idx];
+    if (v) bo[String(v)] = true;
+  }
+  return bo;
+}
+
+/** true nếu công ty này có ít nhất 1 hợp đồng đang có hồ sơ giải ngân gắn vào. */
+function congTyDangSuDung_(maCty) {
+  var maHDCoHoSo = layBoMaHopDongCoHoSo_();
+  var hopDongCuaCty = sheetToObjects_(SHEET_HOPDONG).filter(function (hd) { return String(hd.MaCty) === String(maCty); });
+  return hopDongCuaCty.some(function (hd) { return maHDCoHoSo[String(hd.MaHD)]; });
+}
+
+/** Danh sách hồ sơ giải ngân (rút gọn) đang gắn với 1 hợp đồng cụ thể — dùng để hiện khi Hợp đồng bị khoá. */
+function layDanhSachHoSoTheoHopDong(maHD) {
+  if (!maHD) return [];
+  var sh = getSS_().getSheetByName(SHEET_HOSO);
+  if (!sh) return [];
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
+  var soCot = sh.getLastColumn();
+  var values = sh.getRange(1, 1, lastRow, soCot).getValues();
+  var headers = values[0];
+  var idxMaHD = headers.indexOf('MaHD');
+  var idxMaHoSo = headers.indexOf('MaHoSo');
+  var idxSoGNN = headers.indexOf('SoGiayNhanNo');
+  var idxTrangThai = headers.indexOf('TrangThai');
+  var idxNgayGiaiNgan = headers.indexOf('NgayGiaiNgan');
+  var ket = [];
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][idxMaHD]) !== String(maHD)) continue;
+    ket.push({
+      maHoSo: values[r][idxMaHoSo],
+      soGiayNhanNo: values[r][idxSoGNN],
+      trangThai: values[r][idxTrangThai],
+      ngayGiaiNgan: (values[r][idxNgayGiaiNgan] instanceof Date)
+        ? Utilities.formatDate(values[r][idxNgayGiaiNgan], 'Asia/Ho_Chi_Minh', 'dd/MM/yyyy')
+        : String(values[r][idxNgayGiaiNgan] || '')
+    });
+  }
+  return ket;
+}
+
+/** Danh sách hồ sơ giải ngân (rút gọn) đang gắn với 1 công ty — gộp từ TẤT CẢ hợp đồng của công ty đó. */
+function layDanhSachHoSoTheoCongTy(maCty) {
+  if (!maCty) return [];
+  var hopDongCuaCty = sheetToObjects_(SHEET_HOPDONG).filter(function (hd) { return String(hd.MaCty) === String(maCty); });
+  var ket = [];
+  hopDongCuaCty.forEach(function (hd) {
+    layDanhSachHoSoTheoHopDong(hd.MaHD).forEach(function (hs) {
+      hs.soHopDong = hd.SoHopDong;
+      ket.push(hs);
+    });
+  });
+  return ket;
+}
+
 function layDanhSachCongTy() {
   var all = sheetToObjects_(SHEET_CONGTY);
-  return chuyenDoiDateThanhChuoi_(all);
+  all = chuyenDoiDateThanhChuoi_(all);
+  var maHDCoHoSo = layBoMaHopDongCoHoSo_();
+  var hopDongAll = sheetToObjects_(SHEET_HOPDONG);
+  var maCtyDangSuDung = {};
+  hopDongAll.forEach(function (hd) {
+    if (maHDCoHoSo[String(hd.MaHD)]) maCtyDangSuDung[String(hd.MaCty)] = true;
+  });
+  all.forEach(function (c) { c.dangSuDung = !!maCtyDangSuDung[String(c.MaCty)]; });
+  return all;
 }
 
 /** Danh sách hợp đồng vay (cho dropdown), lọc theo MaCty nếu truyền vào. */
@@ -37,7 +114,10 @@ function layDanhSachHopDong(maCty) {
   if (maCty) {
     ketQua = all.filter(function (x) { return String(x.MaCty) === String(maCty); });
   }
-  return chuyenDoiDateThanhChuoi_(ketQua);
+  ketQua = chuyenDoiDateThanhChuoi_(ketQua);
+  var maHDCoHoSo = layBoMaHopDongCoHoSo_();
+  ketQua.forEach(function (hd) { hd.dangSuDung = !!maHDCoHoSo[String(hd.MaHD)]; });
+  return ketQua;
 }
 
 /** Danh sách khách hàng/nhà cung cấp (thụ hưởng) để chọn khi lập UNC thanh toán. */
@@ -220,7 +300,11 @@ function luuCongTy(payload) {
   var sh = getSS_().getSheetByName(SHEET_CONGTY);
   var maCty = payload.maCty;
   var isNew = !maCty;
-  if (isNew) maCty = sinhMaTuDong_(SHEET_CONGTY, 'CTY', 3);
+  if (isNew) {
+    maCty = sinhMaTuDong_(SHEET_CONGTY, 'CTY', 3);
+  } else if (congTyDangSuDung_(maCty)) {
+    throw new Error('Công ty ' + maCty + ' đã có hồ sơ giải ngân gắn với hợp đồng của công ty này — không thể sửa. Chỉ có thể xem.');
+  }
 
   var row = [
     maCty, payload.tenCty, payload.maCIF || '', payload.diaChiTruSo || '',
@@ -251,7 +335,11 @@ function luuHopDong(payload) {
   var sh = getSS_().getSheetByName(SHEET_HOPDONG);
   var maHD = payload.maHD;
   var isNew = !maHD;
-  if (isNew) maHD = sinhMaTuDong_(SHEET_HOPDONG, 'HD', 3);
+  if (isNew) {
+    maHD = sinhMaTuDong_(SHEET_HOPDONG, 'HD', 3);
+  } else if (layBoMaHopDongCoHoSo_()[String(maHD)]) {
+    throw new Error('Hợp đồng ' + maHD + ' đã có hồ sơ giải ngân gắn vào — không thể sửa. Chỉ có thể xem.');
+  }
 
   var row = [
     maHD, payload.maCty, payload.soHopDong, toDateOrEmpty_(payload.ngayHopDong),
@@ -318,7 +406,7 @@ function luuHoSoGiaiNgan(payload) {
     TaiLieuChungMinhMucDich: payload.taiLieuChungMinhMucDich || '',
     NguoiLapBieu: payload.nguoiLapBieu || '',
     SoThamChieu: payload.soThamChieu || '',
-    TrangThai: payload.trangThai || 'Nháp',
+    TrangThai: payload.trangThai || 'Chờ tạo hồ sơ',
     NgayTao: new Date()
   };
 
@@ -438,10 +526,11 @@ function layTapSoHDDaSuDung_(maHoSoBoQua) {
 function layDanhSachTaiLieuTheoNhaCungCap(tenNguoiHuong, maHoSoHienTai) {
   if (!tenNguoiHuong) return [];
 
-  var ss = SpreadsheetApp.openById(SS_MUA_HANG_ID);
-  var sh = ss.getSheetByName(SHEET_MUA_HANG);
+  var ch = CauHinh_();
+  var ss = SpreadsheetApp.openById(ch.ssMuaHangId);
+  var sh = ss.getSheetByName(ch.sheetMuaHang);
   if (!sh) {
-    throw new Error('Không tìm thấy tab "' + SHEET_MUA_HANG + '" trong file Sổ chi tiết mua hàng.');
+    throw new Error('Không tìm thấy tab "' + ch.sheetMuaHang + '" trong file Sổ chi tiết mua hàng.');
   }
 
   var values = sh.getDataRange().getValues();
@@ -586,7 +675,109 @@ function xoaHoSo(maHoSo) {
   return { maHoSo: maHoSo };
 }
 
+/** Đếm số dòng ở 1 sheet có giá trị `giaTri` tại cột `tenCot` — dùng để kiểm tra ràng buộc trước khi xoá. */
+function demSoDongThamChieu_(sheetName, tenCot, giaTri) {
+  var sh = getSS_().getSheetByName(sheetName);
+  if (!sh) return 0;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return 0;
+  var soCot = sh.getLastColumn();
+  var values = sh.getRange(1, 1, lastRow, soCot).getValues();
+  var headers = values[0];
+  var idx = headers.indexOf(tenCot);
+  if (idx < 0) return 0;
+  var dem = 0;
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][idx]) === String(giaTri)) dem++;
+  }
+  return dem;
+}
+
+/** Xoá nhiều dòng cùng lúc ở 1 sheet, dựa theo danh sách giá trị khớp cột `maCot`. */
+function xoaNhieuDongTheoMa_(sheetName, maCot, danhSachMa) {
+  if (!danhSachMa || !danhSachMa.length) return 0;
+  var sh = getSS_().getSheetByName(sheetName);
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return 0;
+  var soCot = sh.getLastColumn();
+  var values = sh.getRange(1, 1, lastRow, soCot).getValues();
+  var headers = values[0];
+  var idx = headers.indexOf(maCot);
+  if (idx < 0) return 0;
+  var boMa = {};
+  danhSachMa.forEach(function (m) { boMa[String(m)] = true; });
+  var soDongDaXoa = 0;
+  // Xoá từ dòng cuối lên đầu để không bị lệch chỉ số khi xoá dần.
+  for (var r = values.length - 1; r >= 1; r--) {
+    if (boMa[String(values[r][idx])]) {
+      sh.deleteRow(r + 1);
+      soDongDaXoa++;
+    }
+  }
+  return soDongDaXoa;
+}
+
+/**
+ * Xoá nhiều công ty vay vốn cùng lúc (chọn từ bảng danh sách, dùng nút "Xoá đã chọn").
+ * An toàn dữ liệu: BỎ QUA (không xoá) công ty nào đang có ít nhất 1 Hợp đồng vay gắn với nó,
+ * để tránh làm "mồ côi" dữ liệu hợp đồng/hồ sơ đã tạo trước đó.
+ * @param {string[]} danhSachMa - danh sách MaCty cần xoá
+ * @return {{daXoa: string[], boQua: {ma:string, lyDo:string}[]}}
+ */
+function xoaCongTyNhieu(danhSachMa) {
+  danhSachMa = danhSachMa || [];
+  var daXoa = [], boQua = [];
+  var maHDCoHoSo = layBoMaHopDongCoHoSo_();
+  var hopDongAll = sheetToObjects_(SHEET_HOPDONG);
+  danhSachMa.forEach(function (ma) {
+    var hopDongCuaCty = hopDongAll.filter(function (hd) { return String(hd.MaCty) === String(ma); });
+    var soHoSo = hopDongCuaCty.filter(function (hd) { return maHDCoHoSo[String(hd.MaHD)]; }).length;
+    if (soHoSo > 0) {
+      boQua.push({ ma: ma, lyDo: 'đang có ' + soHoSo + ' hồ sơ giải ngân gắn với hợp đồng của công ty này' });
+    } else {
+      daXoa.push(ma);
+    }
+  });
+  xoaNhieuDongTheoMa_(SHEET_CONGTY, 'MaCty', daXoa);
+  return { daXoa: daXoa, boQua: boQua };
+}
+
+/**
+ * Xoá nhiều hợp đồng vay cùng lúc. BỎ QUA hợp đồng nào đang có ít nhất 1 Hồ sơ giải ngân gắn với nó.
+ * @param {string[]} danhSachMa - danh sách MaHD cần xoá
+ * @return {{daXoa: string[], boQua: {ma:string, lyDo:string}[]}}
+ */
+function xoaHopDongNhieu(danhSachMa) {
+  danhSachMa = danhSachMa || [];
+  var daXoa = [], boQua = [];
+  danhSachMa.forEach(function (ma) {
+    var soHoSo = demSoDongThamChieu_(SHEET_HOSO, 'MaHD', ma);
+    if (soHoSo > 0) {
+      boQua.push({ ma: ma, lyDo: 'đang có ' + soHoSo + ' hồ sơ giải ngân gắn với hợp đồng này' });
+    } else {
+      daXoa.push(ma);
+    }
+  });
+  xoaNhieuDongTheoMa_(SHEET_HOPDONG, 'MaHD', daXoa);
+  return { daXoa: daXoa, boQua: boQua };
+}
+
+/**
+ * Xoá nhiều khách hàng / nhà cung cấp cùng lúc. Khách hàng chỉ là danh mục gợi ý điền nhanh
+ * (không phải khoá ngoại của hồ sơ đã lưu — hồ sơ lưu trực tiếp tên/STK vào ChiTietThuHuong),
+ * nên không cần kiểm tra ràng buộc, xoá được ngay.
+ * @param {string[]} danhSachMa - danh sách MaKH cần xoá
+ * @return {{daXoa: string[], boQua: {ma:string, lyDo:string}[]}}
+ */
+function xoaKhachHangNhieu(danhSachMa) {
+  danhSachMa = danhSachMa || [];
+  xoaNhieuDongTheoMa_(SHEET_KHACHHANG, 'MaKH', danhSachMa);
+  return { daXoa: danhSachMa, boQua: [] };
+}
+
 function capNhatBaoCaoDraft_() {
+
+
   var rows = layBaoCaoTienVay('', '', '', '');
 
   var ss = getSS_();

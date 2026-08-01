@@ -5,8 +5,23 @@
  */
 
 function initializeSpreadsheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
+  khoiTaoCauTrucSheet_();
+  SpreadsheetApp.getUi().alert('Đã kiểm tra/khởi tạo xong cấu trúc Sheet. Bạn có thể dùng menu "Mở ứng dụng".');
+}
+
+/**
+ * Gọi được từ tab "Cài đặt" trên Web App (không có SpreadsheetApp.getUi() ở ngữ cảnh Web App
+ * nên không thể gọi thẳng initializeSpreadsheet() — dùng hàm này thay thế, trả về kết quả dạng
+ * object để giao diện hiển thị thông báo thay vì alert().
+ */
+function khoiTaoDanhMucTuWebApp() {
+  khoiTaoCauTrucSheet_();
+  return { ok: true, thongBao: 'Đã kiểm tra/khởi tạo xong cấu trúc Sheet (DM_CongTy, DM_HopDongVay, DM_KhachHang, HoSoGiaiNgan, ChiTietThuHuong, BaoCaoTienVay_Draft).' };
+}
+
+/** Phần lõi khởi tạo/kiểm tra cấu trúc Sheet — an toàn khi chạy nhiều lần, không đụng dữ liệu cũ. */
+function khoiTaoCauTrucSheet_() {
+  var ss = getSS_();
 
   ensureSheet_(ss, SHEET_CONGTY, [
     'MaCty', 'TenCty', 'MaCIF', 'DiaChiTruSo', 'DienThoai', 'Fax',
@@ -46,7 +61,10 @@ function initializeSpreadsheet() {
     'NgayTaiLieu', 'DonViLapTaiLieu', 'NgayCapGiayToTuyThan', 'GhiChu'
   ]);
 
-  SpreadsheetApp.getUi().alert('Đã kiểm tra/khởi tạo xong cấu trúc Sheet. Bạn có thể dùng menu "Mở ứng dụng".');
+  ensureSheet_(ss, SHEET_BAOCAO_DRAFT, [
+    'MaHoSo', 'TrangThai', 'SoHopDong', 'SoGiayNhanNo', 'NgayNhanNo', 'NgayGiaiNgan', 'TenNguoiHuong',
+    'SoTienVay', 'SoTaiLieu', 'NgayTaiLieu', 'NgayDenHan', 'LaiSuatTrongHan'
+  ]);
 }
 
 function ensureSheet_(ss, name, headers) {

@@ -9,7 +9,7 @@ function saoLuuHangTuan() {
   var tenBanSao = 'BACKUP_' + ss.getName() + '_' + Utilities.formatDate(new Date(), 'Asia/Ho_Chi_Minh', 'yyyyMMdd_HHmmss');
   var file = DriveApp.getFileById(ss.getId()).makeCopy(tenBanSao);
 
-  var goc = DriveApp.getFolderById(THU_MUC_GOC_ID);
+  var goc = DriveApp.getFolderById(CauHinh_().thuMucGocId);
   var itBk = goc.getFoldersByName('Backup_Sheet');
   var thuMuc = itBk.hasNext() ? itBk.next() : goc.createFolder('Backup_Sheet');
   thuMuc.addFile(file);
